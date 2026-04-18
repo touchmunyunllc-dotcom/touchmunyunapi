@@ -16,7 +16,8 @@ var builder = WebApplication.CreateBuilder(args);
 
 // Configure Sentry only when DSN is valid to avoid startup crash in hosted environments.
 var sentryDsn = builder.Configuration["Sentry:Dsn"];
-if (IsValidSentryDsn(sentryDsn))
+var sentryEnabled = IsValidSentryDsn(sentryDsn);
+if (sentryEnabled)
 {
     builder.WebHost.UseSentry(options =>
     {
@@ -364,8 +365,11 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-// Use Sentry tracing
-app.UseSentryTracing();
+// Use Sentry tracing only when Sentry is enabled.
+if (sentryEnabled)
+{
+    app.UseSentryTracing();
+}
 
 // Error handling middleware (must be early in pipeline)
 app.UseMiddleware<ECommerce.Utils.ErrorHandlingMiddleware>();
