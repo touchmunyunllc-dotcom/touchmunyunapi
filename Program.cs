@@ -166,7 +166,8 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
-        policy.WithOrigins(builder.Configuration["FrontendUrl"] ?? "http://localhost:3000")
+        var allowedOrigins = GetAllowedCorsOrigins(builder.Configuration["FrontendUrl"]);
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyHeader()
               .AllowAnyMethod()
               .AllowCredentials();
@@ -210,11 +211,41 @@ var authBuilder = builder.Services.AddAuthentication(options =>
             }
         };
     })
-    .AddCookie("Cookies")
+    .AddCookie("Cookies", options =>
+    {
+        options.Events = new Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationEvents
+        {
+            OnRedirectToLogin = context =>
+            {
+                if (context.Request.Path.StartsWithSegments("/api"))
+                {
+                    context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                    return Task.CompletedTask;
+                }
+
+                context.Response.Redirect(context.RedirectUri);
+                return Task.CompletedTask;
+            },
+            OnRedirectToAccessDenied = context =>
+            {
+                if (context.Request.Path.StartsWithSegments("/api"))
+                {
+                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    return Task.CompletedTask;
+                }
+
+                context.Response.Redirect(context.RedirectUri);
+                return Task.CompletedTask;
+            }
+        };
+    })
     .AddPolicyScheme("JWT_OR_COOKIE", "JWT_OR_COOKIE", options =>
     {
         options.ForwardDefaultSelector = context =>
         {
+            if (context.Request.Path.StartsWithSegments("/api"))
+                return "JWT";
+
             string? authorization = context.Request.Headers.Authorization.ToString();
             if (!string.IsNullOrEmpty(authorization) && authorization.StartsWith("Bearer "))
                 return "JWT";
@@ -434,4 +465,23 @@ static bool IsValidSentryDsn(string? dsn)
 
     return (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
         && !string.IsNullOrWhiteSpace(uri.Host);
+}
+
+static string[] GetAllowedCorsOrigins(string? configuredOrigins)
+{
+    var origins = new List<string>();
+
+    if (!string.IsNullOrWhiteSpace(configuredOrigins))
+    {
+        origins.AddRange(configuredOrigins
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+    }
+
+    origins.Add("http://localhost:3000");
+    origins.Add("https://touchmunyunui.vercel.app");
+
+    return origins
+        .Where(origin => Uri.TryCreate(origin, UriKind.Absolute, out _))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
 }
