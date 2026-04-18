@@ -14,15 +14,23 @@ using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Configure Sentry
-builder.WebHost.UseSentry(options =>
+// Configure Sentry only when DSN is valid to avoid startup crash in hosted environments.
+var sentryDsn = builder.Configuration["Sentry:Dsn"];
+if (IsValidSentryDsn(sentryDsn))
 {
-    options.Dsn = builder.Configuration["Sentry:Dsn"];
-    options.Debug = builder.Configuration.GetValue<bool>("Sentry:Debug", false);
-    options.TracesSampleRate = builder.Configuration.GetValue<double>("Sentry:TracesSampleRate", 1.0);
-    options.Environment = builder.Environment.EnvironmentName;
-    options.Release = builder.Configuration["Sentry:Release"] ?? "1.0.0";
-});
+    builder.WebHost.UseSentry(options =>
+    {
+        options.Dsn = sentryDsn;
+        options.Debug = builder.Configuration.GetValue<bool>("Sentry:Debug", false);
+        options.TracesSampleRate = builder.Configuration.GetValue<double>("Sentry:TracesSampleRate", 1.0);
+        options.Environment = builder.Environment.EnvironmentName;
+        options.Release = builder.Configuration["Sentry:Release"] ?? "1.0.0";
+    });
+}
+else
+{
+    Console.WriteLine("Sentry disabled: invalid or missing Sentry:Dsn.");
+}
 
 // Configure Application Insights
 if (!string.IsNullOrEmpty(builder.Configuration["ApplicationInsights:ConnectionString"]))
@@ -407,3 +415,19 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.Run();
+
+static bool IsValidSentryDsn(string? dsn)
+{
+    if (string.IsNullOrWhiteSpace(dsn))
+    {
+        return false;
+    }
+
+    if (!Uri.TryCreate(dsn, UriKind.Absolute, out var uri))
+    {
+        return false;
+    }
+
+    return (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+        && !string.IsNullOrWhiteSpace(uri.Host);
+}
