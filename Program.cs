@@ -100,24 +100,34 @@ ECommerce.Data.DapperTypeHandlers.RegisterTypeHandlers();
 
 // Redis Cache (optional — no fake localhost connection when unset)
 var redisConnection = builder.Configuration.GetConnectionString("Redis");
-var redisConfigured = !string.IsNullOrWhiteSpace(redisConnection);
-if (redisConfigured)
+var redisFromEnvironment = Environment.GetEnvironmentVariable("REDIS_URL");
+if (!string.IsNullOrWhiteSpace(redisFromEnvironment))
 {
+    redisConnection = redisFromEnvironment;
+}
+
+var redisConfigured = !string.IsNullOrWhiteSpace(redisConnection);
+var redisLooksLocal = redisConfigured &&
+    (redisConnection!.Contains("localhost", StringComparison.OrdinalIgnoreCase) ||
+     redisConnection.Contains("127.0.0.1", StringComparison.OrdinalIgnoreCase));
+
+if (redisConfigured && (!builder.Environment.IsProduction() || !redisLooksLocal))
+{
+    var redisOptions = ConfigurationOptions.Parse(redisConnection!, true);
+    redisOptions.AbortOnConnectFail = false;
+    redisOptions.ConnectRetry = 2;
+
     builder.Services.AddStackExchangeRedisCache(options =>
     {
-        options.Configuration = redisConnection;
+        options.ConfigurationOptions = redisOptions;
     });
     builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
-        ConnectionMultiplexer.Connect(redisConnection!));
+        ConnectionMultiplexer.Connect(redisOptions));
     builder.Services.AddScoped<IRedisService, RedisService>();
 }
 else
 {
-    if (!builder.Environment.IsDevelopment())
-    {
-        throw new InvalidOperationException("Redis must be configured in non-development environments.");
-    }
-
+    Log.Warning("Redis is not configured for this environment. Falling back to in-memory/no-op cache.");
     builder.Services.AddMemoryCache();
     builder.Services.AddScoped<IRedisService, NoOpRedisService>();
 }
