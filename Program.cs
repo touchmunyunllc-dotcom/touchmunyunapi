@@ -89,7 +89,7 @@ builder.Services.AddSwaggerGen(c =>
         }
     });
 });
-
+builder.Configuration.AddEnvironmentVariables();
 // Database - Dapper with PostgreSQL
 builder.Services.AddScoped<IDbConnection>(sp =>
     new Npgsql.NpgsqlConnection(builder.Configuration.GetConnectionString("DefaultConnection")));

@@ -27,6 +27,8 @@ coverage/
 .env
 .env.*
 appsettings.*.local.json
+!appsettings.json
+!appsettings.Development.json.example
 
 # OS files
 .DS_Store
