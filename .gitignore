@@ -1,0 +1,33 @@
+# Build artifacts
+bin/
+obj/
+publish/
+
+# Logs
+logs/
+*.log
+
+# Test results and coverage
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+coverage/
+
+# IDE/tooling
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.DotSettings.user
+
+# Local configuration and secrets
+.env
+.env.*
+appsettings.*.local.json
+
+# OS files
+.DS_Store
+Thumbs.db

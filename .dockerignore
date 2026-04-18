@@ -1,0 +1,15 @@
+bin/
+obj/
+*.user
+*.suo
+*.cache
+.vs/
+.vscode/
+*.swp
+*.swo
+*~
+.env
+.env.local
+logs/
+*.log
+
