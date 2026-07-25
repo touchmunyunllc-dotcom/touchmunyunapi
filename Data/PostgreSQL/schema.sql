@@ -33,7 +33,7 @@ CREATE INDEX IF NOT EXISTS idx_users_created_at ON users(created_at);
 -- ============================================
 CREATE TABLE IF NOT EXISTS addresses (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    user_id UUID NOT NULL,
+    user_id UUID,
     address_line1 VARCHAR(255) NOT NULL,
     address_line2 VARCHAR(255),
     city VARCHAR(100) NOT NULL,
@@ -66,6 +66,8 @@ CREATE TABLE IF NOT EXISTS products (
     sku VARCHAR(100) UNIQUE,
     colors TEXT[] DEFAULT ARRAY[]::TEXT[],
     sizes INTEGER[] DEFAULT ARRAY[]::INTEGER[],
+    color_images JSONB NOT NULL DEFAULT '{}'::jsonb,
+    customization_type VARCHAR(50),
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -92,11 +94,12 @@ CREATE TABLE IF NOT EXISTS cart_items (
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     selected_color VARCHAR(50),
     selected_size INTEGER,
+    custom_number VARCHAR(20),
+    writing_color VARCHAR(50),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE,
     CONSTRAINT fk_cart_items_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_cart_items_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
-    CONSTRAINT uq_cart_user_product UNIQUE (user_id, product_id)
+    CONSTRAINT fk_cart_items_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 );
 
 -- Indexes for Cart Items
@@ -133,6 +136,7 @@ CREATE TABLE IF NOT EXISTS orders (
     order_code VARCHAR(20) NOT NULL UNIQUE,
     user_id UUID,
     guest_email VARCHAR(255),
+    guest_name VARCHAR(255),
     total_amount DECIMAL(18, 2) NOT NULL CHECK (total_amount >= 0),
     status VARCHAR(50) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Paid', 'Packed', 'Shipped', 'Delivered', 'Cancelled')),
     coupon_id UUID,
@@ -170,6 +174,8 @@ CREATE TABLE IF NOT EXISTS order_items (
     price DECIMAL(18, 2) NOT NULL CHECK (price >= 0),
     selected_color VARCHAR(50),
     selected_size INTEGER,
+    custom_number VARCHAR(20),
+    writing_color VARCHAR(50),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_order_items_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
     CONSTRAINT fk_order_items_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT

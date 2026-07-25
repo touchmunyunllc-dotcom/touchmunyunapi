@@ -11,7 +11,9 @@ public record CreateProductRequest(
     string Category,
     int Stock,
     List<string>? Colors = null,
-    List<int>? Sizes = null);
+    List<int>? Sizes = null,
+    Dictionary<string, string>? ColorImages = null,
+    string? CustomizationType = null);
 
 public record UpdateProductRequest(
     string? Name,
@@ -22,7 +24,10 @@ public record UpdateProductRequest(
     string? Category,
     int? Stock,
     List<string>? Colors = null,
-    List<int>? Sizes = null);
+    List<int>? Sizes = null,
+    Dictionary<string, string>? ColorImages = null,
+    string? CustomizationType = null,
+    bool ClearSalePrice = false);
 
 public record BulkPriceUpdateRequest(
     List<Guid> ProductIds,

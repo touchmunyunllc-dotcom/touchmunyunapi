@@ -132,11 +132,11 @@ public class DbContext : IDbContext
                 updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
             )");
 
-        // Addresses table
+        // Addresses table (user_id null for guest checkout shipping)
         await connection.ExecuteAsync(@"
             CREATE TABLE IF NOT EXISTS addresses (
                 id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-                user_id UUID NOT NULL,
+                user_id UUID,
                 address_line1 VARCHAR(255) NOT NULL,
                 address_line2 VARCHAR(255),
                 city VARCHAR(100) NOT NULL,
@@ -187,6 +187,7 @@ public class DbContext : IDbContext
                 order_code VARCHAR(20) NOT NULL UNIQUE,
                 user_id UUID,
                 guest_email VARCHAR(255),
+                guest_name VARCHAR(255),
                 total_amount DECIMAL(18, 2) NOT NULL CHECK (total_amount >= 0),
                 status VARCHAR(50) NOT NULL DEFAULT 'Pending' CHECK (status IN ('Pending', 'Paid', 'Packed', 'Shipped', 'Delivered', 'Cancelled')),
                 coupon_id UUID,
@@ -478,6 +479,74 @@ public class DbContext : IDbContext
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_stripe_payment_intent_id
                 ON orders (stripe_payment_intent_id)
                 WHERE stripe_payment_intent_id IS NOT NULL;");
+
+            // Migration: color_images + customization_type on products
+            await connection.ExecuteAsync(@"
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'products' AND column_name = 'color_images'
+                    ) THEN
+                        ALTER TABLE products ADD COLUMN color_images JSONB NOT NULL DEFAULT '{}'::jsonb;
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'products' AND column_name = 'customization_type'
+                    ) THEN
+                        ALTER TABLE products ADD COLUMN customization_type VARCHAR(50);
+                    END IF;
+                END $$;");
+
+            // Migration: wristband customization on cart_items / order_items
+            await connection.ExecuteAsync(@"
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'cart_items' AND column_name = 'custom_number'
+                    ) THEN
+                        ALTER TABLE cart_items ADD COLUMN custom_number VARCHAR(20);
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'cart_items' AND column_name = 'writing_color'
+                    ) THEN
+                        ALTER TABLE cart_items ADD COLUMN writing_color VARCHAR(50);
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'order_items' AND column_name = 'custom_number'
+                    ) THEN
+                        ALTER TABLE order_items ADD COLUMN custom_number VARCHAR(20);
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'order_items' AND column_name = 'writing_color'
+                    ) THEN
+                        ALTER TABLE order_items ADD COLUMN writing_color VARCHAR(50);
+                    END IF;
+                END $$;");
+
+            // Allow multiple cart lines per product (color / customization variants)
+            await connection.ExecuteAsync(@"
+                ALTER TABLE cart_items DROP CONSTRAINT IF EXISTS uq_cart_user_product;");
+
+            // Guest checkout addresses (no user account)
+            await connection.ExecuteAsync(@"
+                ALTER TABLE addresses ALTER COLUMN user_id DROP NOT NULL;");
+
+            // Guest name on orders for admin fulfillment
+            await connection.ExecuteAsync(@"
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'orders' AND column_name = 'guest_name'
+                    ) THEN
+                        ALTER TABLE orders ADD COLUMN guest_name VARCHAR(255);
+                    END IF;
+                END $$;");
         }
         catch (Exception ex)
         {

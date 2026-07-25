@@ -10,7 +10,22 @@ public class StripeService : IStripeService
     public StripeService(IConfiguration configuration)
     {
         _configuration = configuration;
-        StripeConfiguration.ApiKey = _configuration["Stripe:SecretKey"];
+        StripeConfiguration.ApiKey = NormalizeStripeSecretKey(_configuration["Stripe:SecretKey"]);
+    }
+
+    /// <summary>
+    /// Render/env pastes often include wrapping quotes or whitespace, which Stripe rejects as Invalid API Key.
+    /// </summary>
+    internal static string NormalizeStripeSecretKey(string? raw)
+    {
+        var key = (raw ?? string.Empty).Trim().Trim('"').Trim('\'');
+        if (string.IsNullOrWhiteSpace(key) || !key.StartsWith("sk_", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Stripe secret key is missing or invalid. Set Stripe__SecretKey on the API host to a valid sk_test_... or sk_live_... key from the Stripe Dashboard (not the pk_ publishable key).");
+        }
+
+        return key;
     }
 
     public async Task<CheckoutSessionResult> CreateCheckoutSessionForTotalAsync(

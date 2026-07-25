@@ -76,7 +76,9 @@ public class GuestController : ControllerBase
             var result = await _guestService.CreateGuestOrderAsync(
                 request.Email,
                 request.Name,
-                request.Items.Select(i => new GuestOrderItem(i.ProductId, i.Name, i.Price, i.Quantity)).ToList(),
+                request.Items.Select(i => new GuestOrderItem(
+                    i.ProductId, i.Name, i.Price, i.Quantity,
+                    i.SelectedColor, i.SelectedSize, i.CustomNumber, i.WritingColor)).ToList(),
                 request.TotalAmount,
                 request.Currency,
                 request.CouponCode,

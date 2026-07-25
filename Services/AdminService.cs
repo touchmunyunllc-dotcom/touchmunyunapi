@@ -43,6 +43,7 @@ public class AdminService : IAdminService
                 o.order_code,
                 o.user_id,
                 o.guest_email,
+                o.guest_name,
                 o.total_amount,
                 o.status,
                 o.tracking_number,
@@ -129,6 +130,10 @@ public class AdminService : IAdminService
                     oi.product_id,
                     oi.quantity,
                     oi.price,
+                    oi.selected_color,
+                    oi.selected_size,
+                    oi.custom_number,
+                    oi.writing_color,
                     p.name as product_name,
                     p.sku as product_sku
                 FROM order_items oi
@@ -158,9 +163,10 @@ public class AdminService : IAdminService
             Id = o.id,
             OrderCode = o.order_code,
             UserId = o.user_id,
-            UserName = o.user_name,
+            UserName = o.user_name ?? o.guest_name,
             UserEmail = o.user_email ?? o.guest_email,
             GuestEmail = o.guest_email,
+            GuestName = o.guest_name,
             TotalAmount = o.total_amount,
             Status = o.status,
             CouponCode = o.coupon_code,
@@ -180,7 +186,11 @@ public class AdminService : IAdminService
                     ProductName = item.product_name ?? "Unknown Product",
                     ProductSku = item.product_sku ?? "N/A",
                     Quantity = item.quantity,
-                    Price = item.price
+                    Price = item.price,
+                    SelectedColor = item.selected_color,
+                    SelectedSize = item.selected_size,
+                    CustomNumber = item.custom_number,
+                    WritingColor = item.writing_color
                 }).ToList()
                 : new List<AdminOrderItemInfo>()
         }).ToList();
@@ -214,6 +224,10 @@ public class AdminService : IAdminService
                 oi.product_id,
                 oi.quantity,
                 oi.price,
+                oi.selected_color,
+                oi.selected_size,
+                oi.custom_number,
+                oi.writing_color,
                 p.name as product_name
             FROM order_items oi
             INNER JOIN products p ON oi.product_id = p.id
@@ -224,7 +238,7 @@ public class AdminService : IAdminService
         {
             Id = order.id,
             UserId = order.user_id,
-            UserName = order.user_name,
+            UserName = order.user_name ?? (string?)order.guest_name,
             UserEmail = order.user_email ?? order.guest_email,
             UserPhoneNumber = (string?)order.user_phone_number,
             TotalAmount = order.total_amount,
@@ -232,6 +246,7 @@ public class AdminService : IAdminService
             CouponCode = order.coupon_code,
             OrderCode = order.order_code,
             GuestEmail = order.guest_email,
+            GuestName = (string?)order.guest_name,
             PaymentMethod = (string?)order.payment_method,
             CreatedAt = order.created_at,
             OrderItems = orderItems.Select(oi => new OrderItem
@@ -241,6 +256,10 @@ public class AdminService : IAdminService
                 ProductId = oi.product_id,
                 Quantity = oi.quantity,
                 Price = oi.price,
+                SelectedColor = oi.selected_color,
+                SelectedSize = oi.selected_size,
+                CustomNumber = oi.custom_number,
+                WritingColor = oi.writing_color,
                 Product = new Product { Name = oi.product_name ?? "Unknown Product" }
             }).ToList()
         };

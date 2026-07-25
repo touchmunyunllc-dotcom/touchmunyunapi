@@ -103,7 +103,8 @@ public class OrderController : ControllerBase
 
         try
         {
-            var orderItems = request.Items.Select(i => new ECommerce.Services.OrderItemRequest(i.ProductId, i.Quantity, i.SelectedColor, i.SelectedSize)).ToList();
+            var orderItems = request.Items.Select(i => new ECommerce.Services.OrderItemRequest(
+                i.ProductId, i.Quantity, i.SelectedColor, i.SelectedSize, i.CustomNumber, i.WritingColor)).ToList();
             var order = await _orderService.CreateOrderAsync(
                 userIdGuid,
                 request.ShippingAddressId,

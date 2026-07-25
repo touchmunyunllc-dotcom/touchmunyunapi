@@ -72,4 +72,16 @@ public sealed class PendingCheckoutLineItem
 
     [JsonPropertyName("unitPrice")]
     public decimal UnitPrice { get; set; }
+
+    [JsonPropertyName("selectedColor")]
+    public string? SelectedColor { get; set; }
+
+    [JsonPropertyName("selectedSize")]
+    public int? SelectedSize { get; set; }
+
+    [JsonPropertyName("customNumber")]
+    public string? CustomNumber { get; set; }
+
+    [JsonPropertyName("writingColor")]
+    public string? WritingColor { get; set; }
 }

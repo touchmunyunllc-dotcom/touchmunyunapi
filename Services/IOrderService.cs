@@ -23,5 +23,11 @@ public interface IOrderService
     Task<Order?> CancelOrderAsync(Guid orderId, Guid userId, string cancellationReason);
 }
 
-public record OrderItemRequest(Guid ProductId, int Quantity, string? SelectedColor = null, int? SelectedSize = null);
+public record OrderItemRequest(
+    Guid ProductId,
+    int Quantity,
+    string? SelectedColor = null,
+    int? SelectedSize = null,
+    string? CustomNumber = null,
+    string? WritingColor = null);
 

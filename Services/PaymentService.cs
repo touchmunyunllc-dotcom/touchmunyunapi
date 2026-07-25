@@ -78,7 +78,11 @@ public class PaymentService : IPaymentService
             {
                 ProductId = ci.ProductId,
                 Quantity = ci.Quantity,
-                UnitPrice = ci.Product != null ? ci.Product.DisplayPrice : 0
+                UnitPrice = ci.Product != null ? ci.Product.DisplayPrice : 0,
+                SelectedColor = ci.SelectedColor,
+                SelectedSize = ci.SelectedSize,
+                CustomNumber = ci.CustomNumber,
+                WritingColor = ci.WritingColor
             }).ToList()
         };
     }
@@ -223,12 +227,16 @@ public class PaymentService : IPaymentService
                     OrderId = order.Id,
                     ProductId = cartItem.ProductId,
                     Quantity = cartItem.Quantity,
-                    Price = cartItem.Product != null ? cartItem.Product.DisplayPrice : 0
+                    Price = cartItem.Product != null ? cartItem.Product.DisplayPrice : 0,
+                    SelectedColor = cartItem.SelectedColor,
+                    SelectedSize = cartItem.SelectedSize,
+                    CustomNumber = cartItem.CustomNumber,
+                    WritingColor = cartItem.WritingColor
                 };
 
                 await _connection.ExecuteAsync(@"
-                    INSERT INTO order_items (id, order_id, product_id, quantity, price, created_at)
-                    VALUES (@Id, @OrderId, @ProductId, @Quantity, @Price, @CreatedAt)",
+                    INSERT INTO order_items (id, order_id, product_id, quantity, price, selected_color, selected_size, custom_number, writing_color, created_at)
+                    VALUES (@Id, @OrderId, @ProductId, @Quantity, @Price, @SelectedColor, @SelectedSize, @CustomNumber, @WritingColor, @CreatedAt)",
                     new
                     {
                         orderItem.Id,
@@ -236,6 +244,10 @@ public class PaymentService : IPaymentService
                         ProductId = orderItem.ProductId,
                         orderItem.Quantity,
                         orderItem.Price,
+                        orderItem.SelectedColor,
+                        orderItem.SelectedSize,
+                        orderItem.CustomNumber,
+                        orderItem.WritingColor,
                         CreatedAt = DateTime.UtcNow
                     }, transaction);
 

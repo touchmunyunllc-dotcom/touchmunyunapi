@@ -6,6 +6,7 @@ using FluentValidation;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.Hosting;
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using System.Threading.RateLimiting;
@@ -26,6 +27,7 @@ public class AuthController : ControllerBase
     private readonly IValidator<VerifyPasswordResetRequest> _verifyPasswordResetValidator;
     private readonly IConfiguration _configuration;
     private readonly IRecaptchaService _recaptchaService;
+    private readonly IHostEnvironment _environment;
 
     public AuthController(
         IAuthService authService,
@@ -34,7 +36,8 @@ public class AuthController : ControllerBase
         IValidator<RequestPasswordResetRequest> passwordResetValidator,
         IValidator<VerifyPasswordResetRequest> verifyPasswordResetValidator,
         IConfiguration configuration,
-        IRecaptchaService recaptchaService)
+        IRecaptchaService recaptchaService,
+        IHostEnvironment environment)
     {
         _authService = authService;
         _registerValidator = registerValidator;
@@ -43,6 +46,7 @@ public class AuthController : ControllerBase
         _verifyPasswordResetValidator = verifyPasswordResetValidator;
         _configuration = configuration;
         _recaptchaService = recaptchaService;
+        _environment = environment;
     }
 
     [HttpPost("register")]
@@ -392,11 +396,15 @@ public class AuthController : ControllerBase
 
     private CookieOptions BuildCookieOptions()
     {
+        var sameSite = ResolveSameSiteMode();
+        // SameSite=None requires Secure; needed when UI (Vercel) and API (Render) are different sites.
+        var secure = sameSite == SameSiteMode.None || Request.IsHttps;
+
         return new CookieOptions
         {
             HttpOnly = true,
-            Secure = Request.IsHttps,
-            SameSite = ResolveSameSiteMode(),
+            Secure = secure,
+            SameSite = sameSite,
             Path = "/"
         };
     }
@@ -406,6 +414,12 @@ public class AuthController : ControllerBase
         var configured = _configuration["AuthCookies:SameSite"];
         if (string.IsNullOrWhiteSpace(configured))
         {
+            // Production API is cross-site from Vercel; Lax cookies won't be sent on /auth/me.
+            if (!_environment.IsDevelopment())
+            {
+                return SameSiteMode.None;
+            }
+
             return SameSiteMode.Lax;
         }
 

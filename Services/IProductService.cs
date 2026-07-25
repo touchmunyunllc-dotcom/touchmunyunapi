@@ -33,7 +33,9 @@ public interface IProductService
         int availableQuantity,
         string? sku = null,
         List<string>? colors = null,
-        List<int>? sizes = null);
+        List<int>? sizes = null,
+        Dictionary<string, string>? colorImages = null,
+        string? customizationType = null);
     
     Task<Product?> UpdateProductAsync(
         Guid id,
@@ -46,7 +48,9 @@ public interface IProductService
         string? sku = null,
         bool? isActive = null,
         List<string>? colors = null,
-        List<int>? sizes = null);
+        List<int>? sizes = null,
+        Dictionary<string, string>? colorImages = null,
+        string? customizationType = null);
     
     Task<bool> DeleteProductAsync(Guid id);
     

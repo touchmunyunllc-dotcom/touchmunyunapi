@@ -1,6 +1,12 @@
 namespace ECommerce.DTOs;
 
-public record AddToCartRequest(Guid ProductId, int Quantity, string? SelectedColor = null, int? SelectedSize = null);
+public record AddToCartRequest(
+    Guid ProductId,
+    int Quantity,
+    string? SelectedColor = null,
+    int? SelectedSize = null,
+    string? CustomNumber = null,
+    string? WritingColor = null);
 public record UpdateCartItemRequest(int Quantity);
 public record ApplyCouponRequest(string CouponCode);
 public record CartItemResponse
@@ -14,6 +20,8 @@ public record CartItemResponse
     public decimal Subtotal { get; init; }
     public string? SelectedColor { get; init; }
     public int? SelectedSize { get; init; }
+    public string? CustomNumber { get; init; }
+    public string? WritingColor { get; init; }
 }
 
 public record CouponInfo

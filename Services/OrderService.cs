@@ -19,6 +19,8 @@ public class OrderService : IOrderService
         sku AS Sku,
         colors AS Colors,
         sizes AS Sizes,
+        COALESCE(color_images::text, '{}') AS ColorImagesJson,
+        customization_type AS CustomizationType,
         is_active AS IsActive,
         created_at AS CreatedAt,
         updated_at AS UpdatedAt";
@@ -264,12 +266,14 @@ public class OrderService : IOrderService
                     Quantity = item.Quantity,
                     Price = product.DisplayPrice,
                     SelectedColor = item.SelectedColor,
-                    SelectedSize = item.SelectedSize
+                    SelectedSize = item.SelectedSize,
+                    CustomNumber = item.CustomNumber,
+                    WritingColor = item.WritingColor
                 };
 
                 await _connection.ExecuteAsync(@"
-                    INSERT INTO order_items (id, order_id, product_id, quantity, price, selected_color, selected_size, created_at)
-                    VALUES (@Id, @OrderId, @ProductId, @Quantity, @Price, @SelectedColor, @SelectedSize, @CreatedAt)",
+                    INSERT INTO order_items (id, order_id, product_id, quantity, price, selected_color, selected_size, custom_number, writing_color, created_at)
+                    VALUES (@Id, @OrderId, @ProductId, @Quantity, @Price, @SelectedColor, @SelectedSize, @CustomNumber, @WritingColor, @CreatedAt)",
                     new
                     {
                         orderItem.Id,
@@ -279,6 +283,8 @@ public class OrderService : IOrderService
                         orderItem.Price,
                         orderItem.SelectedColor,
                         orderItem.SelectedSize,
+                        orderItem.CustomNumber,
+                        orderItem.WritingColor,
                         CreatedAt = DateTime.UtcNow
                     }, transaction);
 
@@ -516,6 +522,8 @@ public class OrderService : IOrderService
                 price AS Price,
                 selected_color AS SelectedColor,
                 selected_size AS SelectedSize,
+                custom_number AS CustomNumber,
+                writing_color AS WritingColor,
                 created_at AS CreatedAt
               FROM order_items WHERE order_id = ANY(@OrderIds)",
             new { OrderIds = orderIds })).ToList();

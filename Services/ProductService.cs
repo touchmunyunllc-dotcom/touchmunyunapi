@@ -25,9 +25,25 @@ public class ProductService : IProductService
         sku AS Sku,
         colors AS Colors,
         sizes AS Sizes,
+        COALESCE(color_images::text, '{}') AS ColorImagesJson,
+        customization_type AS CustomizationType,
         is_active AS IsActive,
         created_at AS CreatedAt,
         updated_at AS UpdatedAt";
+
+    private static void HydrateProducts(IEnumerable<Product> products)
+    {
+        foreach (var p in products)
+        {
+            p.HydrateColorImages();
+        }
+    }
+
+    private static Product? HydrateProduct(Product? product)
+    {
+        product?.HydrateColorImages();
+        return product;
+    }
 
     private readonly IDbConnection _connection;
     private readonly IRedisService _redisService;
@@ -52,6 +68,7 @@ public class ProductService : IProductService
             var cachedProducts = await _redisService.GetAsync<List<Product>>(cacheKey);
             if (cachedProducts != null)
             {
+                HydrateProducts(cachedProducts);
                 return cachedProducts;
             }
         }
@@ -86,6 +103,7 @@ public class ProductService : IProductService
 
         var products = await _connection.QueryAsync<Product>(sql, parameters);
         var productList = products.ToList();
+        HydrateProducts(productList);
 
         // Cache only if no filters (all products)
         if (string.IsNullOrEmpty(category) && string.IsNullOrEmpty(search) && !minPrice.HasValue && !maxPrice.HasValue)
@@ -144,8 +162,9 @@ public class ProductService : IProductService
         parameters.Add("PageSize", pageSize);
         parameters.Add("Offset", offset);
 
-        var products = await _connection.QueryAsync<Product>(sql, parameters);
-        return (products.ToList(), totalCount);
+        var products = (await _connection.QueryAsync<Product>(sql, parameters)).ToList();
+        HydrateProducts(products);
+        return (products, totalCount);
     }
 
     public async Task<List<Product>> GetNewArrivalsAsync(int limit = 50)
@@ -156,8 +175,9 @@ public class ProductService : IProductService
                      ORDER BY created_at DESC 
                      LIMIT @Limit";
         
-        var products = await _connection.QueryAsync<Product>(sql, new { Limit = limit });
-        return products.ToList();
+        var products = (await _connection.QueryAsync<Product>(sql, new { Limit = limit })).ToList();
+        HydrateProducts(products);
+        return products;
     }
 
     public async Task<List<Product>> GetBestSellersAsync(int limit = 50)
@@ -190,8 +210,9 @@ public class ProductService : IProductService
                      ORDER BY COALESCE(sales.total_sold, 0) DESC, p.created_at DESC
                      LIMIT @Limit";
         
-        var products = await _connection.QueryAsync<Product>(sql, new { Limit = limit });
-        return products.ToList();
+        var products = (await _connection.QueryAsync<Product>(sql, new { Limit = limit })).ToList();
+        HydrateProducts(products);
+        return products;
     }
 
     public async Task<Product?> GetProductByIdAsync(Guid id)
@@ -203,7 +224,7 @@ public class ProductService : IProductService
         var cachedProduct = await _redisService.GetAsync<Product>(cacheKey);
         if (cachedProduct != null)
         {
-            return cachedProduct;
+            return HydrateProduct(cachedProduct);
         }
 
         // Get from database - using explicit column mapping
@@ -213,6 +234,7 @@ public class ProductService : IProductService
 
         if (product != null)
         {
+            HydrateProduct(product);
             // Cache the product
             await _redisService.SetAsync(cacheKey, product, CACHE_EXPIRY);
         }
@@ -229,9 +251,12 @@ public class ProductService : IProductService
         int availableQuantity,
         string? sku = null,
         List<string>? colors = null,
-        List<int>? sizes = null)
+        List<int>? sizes = null,
+        Dictionary<string, string>? colorImages = null,
+        string? customizationType = null)
     {
         var productId = Guid.NewGuid();
+        var colorImagesJson = Product.SerializeColorImages(colorImages);
         var product = new Product
         {
             Id = productId,
@@ -244,14 +269,17 @@ public class ProductService : IProductService
             Sku = sku,
             Colors = colors ?? new List<string>(),
             Sizes = sizes ?? new List<int>(),
+            ColorImagesJson = colorImagesJson,
+            CustomizationType = string.IsNullOrWhiteSpace(customizationType) ? null : customizationType.Trim().ToLowerInvariant(),
             IsActive = true,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
+        product.HydrateColorImages();
 
         await _connection.ExecuteAsync(@"
-            INSERT INTO products (id, name, description, price, sale_price, images, category, available_quantity, sku, colors, sizes, is_active, created_at, updated_at)
-            VALUES (@Id, @Name, @Description, @Price, @SalePrice, @Images, @Category, @AvailableQuantity, @Sku, @Colors, @Sizes, @IsActive, @CreatedAt, @UpdatedAt)",
+            INSERT INTO products (id, name, description, price, sale_price, images, category, available_quantity, sku, colors, sizes, color_images, customization_type, is_active, created_at, updated_at)
+            VALUES (@Id, @Name, @Description, @Price, @SalePrice, @Images, @Category, @AvailableQuantity, @Sku, @Colors, @Sizes, CAST(@ColorImagesJson AS jsonb), @CustomizationType, @IsActive, @CreatedAt, @UpdatedAt)",
             new
             {
                 product.Id,
@@ -265,6 +293,8 @@ public class ProductService : IProductService
                 product.Sku,
                 Colors = product.Colors.ToArray(),
                 Sizes = product.Sizes.ToArray(),
+                ColorImagesJson = colorImagesJson,
+                product.CustomizationType,
                 product.IsActive,
                 product.CreatedAt,
                 product.UpdatedAt
@@ -287,7 +317,9 @@ public class ProductService : IProductService
         string? sku = null,
         bool? isActive = null,
         List<string>? colors = null,
-        List<int>? sizes = null)
+        List<int>? sizes = null,
+        Dictionary<string, string>? colorImages = null,
+        string? customizationType = null)
     {
         var existingProduct = await GetProductByIdAsync(id);
         if (existingProduct == null)
@@ -360,6 +392,20 @@ public class ProductService : IProductService
             parameters.Add("Sizes", sizes.ToArray());
         }
 
+        if (colorImages != null)
+        {
+            updateFields.Add("color_images = CAST(@ColorImagesJson AS jsonb)");
+            parameters.Add("ColorImagesJson", Product.SerializeColorImages(colorImages));
+        }
+
+        if (customizationType != null)
+        {
+            updateFields.Add("customization_type = @CustomizationType");
+            parameters.Add(
+                "CustomizationType",
+                string.IsNullOrWhiteSpace(customizationType) ? null : customizationType.Trim().ToLowerInvariant());
+        }
+
         updateFields.Add("updated_at = @UpdatedAt");
 
         var sql = $"UPDATE products SET {string.Join(", ", updateFields)} WHERE id = @Id";
@@ -368,6 +414,7 @@ public class ProductService : IProductService
         var updatedProduct = await _connection.QueryFirstOrDefaultAsync<Product>(
             $"SELECT {PRODUCT_SELECT_COLUMNS} FROM products WHERE id = @Id",
             new { Id = id });
+        HydrateProduct(updatedProduct);
 
         // Invalidate cache
         await InvalidateProductCacheAsync(id);

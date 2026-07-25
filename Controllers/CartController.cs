@@ -54,7 +54,9 @@ public class CartController : ControllerBase
                 request.ProductId,
                 request.Quantity,
                 request.SelectedColor,
-                request.SelectedSize);
+                request.SelectedSize,
+                request.CustomNumber,
+                request.WritingColor);
 
             return Ok(new CartItemResponse
             {
@@ -62,7 +64,9 @@ public class CartController : ControllerBase
                 ProductId = cartItem.ProductId,
                 Quantity = cartItem.Quantity,
                 SelectedColor = cartItem.SelectedColor,
-                SelectedSize = cartItem.SelectedSize
+                SelectedSize = cartItem.SelectedSize,
+                CustomNumber = cartItem.CustomNumber,
+                WritingColor = cartItem.WritingColor
             });
         }
         catch (Exception ex)
@@ -185,11 +189,15 @@ public class CartController : ControllerBase
                 ProductId = item.ProductId,
                 ProductName = item.Product?.Name ?? "",
                 ProductPrice = item.Product?.DisplayPrice ?? 0,
-                ProductImageUrl = item.Product?.Images?.FirstOrDefault() ?? "",
+                ProductImageUrl = item.Product?.ResolveImageForColor(item.SelectedColor)
+                    ?? item.Product?.Images?.FirstOrDefault()
+                    ?? "",
                 Quantity = item.Quantity,
                 Subtotal = (item.Product?.DisplayPrice ?? 0) * item.Quantity,
                 SelectedColor = item.SelectedColor,
-                SelectedSize = item.SelectedSize
+                SelectedSize = item.SelectedSize,
+                CustomNumber = item.CustomNumber,
+                WritingColor = item.WritingColor
             }).ToList(),
             Subtotal = cart.Subtotal,
             Tax = cart.Tax,

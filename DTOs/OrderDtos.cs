@@ -4,7 +4,13 @@ public record CreateOrderRequest(
     Guid? ShippingAddressId,
     List<OrderItemRequest> Items);
 
-public record OrderItemRequest(Guid ProductId, int Quantity, string? SelectedColor = null, int? SelectedSize = null);
+public record OrderItemRequest(
+    Guid ProductId,
+    int Quantity,
+    string? SelectedColor = null,
+    int? SelectedSize = null,
+    string? CustomNumber = null,
+    string? WritingColor = null);
 
 public record OrderTrackingResponse(
     string OrderCode,

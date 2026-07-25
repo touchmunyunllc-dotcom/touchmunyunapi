@@ -97,7 +97,15 @@ public class ProductsController : ControllerBase
             request.Category,
             request.Stock,
             colors: request.Colors,
-            sizes: request.Sizes);
+            sizes: request.Sizes,
+            colorImages: request.ColorImages,
+            customizationType: request.CustomizationType);
+
+        if (request.SalePrice.HasValue)
+        {
+            await _productService.UpdateSalePriceAsync(product.Id, request.SalePrice);
+            product = await _productService.GetProductByIdAsync(product.Id) ?? product;
+        }
 
         return CreatedAtAction(nameof(GetProductById), new { id = product.Id }, product);
     }
@@ -124,17 +132,21 @@ public class ProductsController : ControllerBase
             request.Category,
             request.Stock,
             colors: request.Colors,
-            sizes: request.Sizes);
+            sizes: request.Sizes,
+            colorImages: request.ColorImages,
+            customizationType: request.CustomizationType);
 
         if (updatedProduct == null)
         {
             return NotFound();
         }
 
-        // Update sale price if provided
-        if (request.SalePrice.HasValue || (request.SalePrice == null && updatedProduct != null))
+        // Only touch sale price when explicitly set or cleared (omit = leave unchanged)
+        if (request.ClearSalePrice || request.SalePrice.HasValue)
         {
-            await _productService.UpdateSalePriceAsync(id, request.SalePrice);
+            await _productService.UpdateSalePriceAsync(
+                id,
+                request.ClearSalePrice ? null : request.SalePrice);
             updatedProduct = await _productService.GetProductByIdAsync(id);
         }
 

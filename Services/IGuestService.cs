@@ -30,7 +30,11 @@ public record GuestOrderItem(
     Guid ProductId,
     string Name,
     decimal Price,
-    int Quantity);
+    int Quantity,
+    string? SelectedColor = null,
+    int? SelectedSize = null,
+    string? CustomNumber = null,
+    string? WritingColor = null);
 
 public record GuestAddress(
     string AddressLine1,

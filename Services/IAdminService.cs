@@ -106,6 +106,7 @@ public record AdminOrderResponse
     public string? UserName { get; set; }
     public string? UserEmail { get; set; }
     public string? GuestEmail { get; set; }
+    public string? GuestName { get; set; }
     public decimal TotalAmount { get; set; }
     public string Status { get; set; } = string.Empty;
     public string? CouponCode { get; set; }
@@ -126,6 +127,10 @@ public record AdminOrderItemInfo
     public string ProductSku { get; set; } = string.Empty;
     public int Quantity { get; set; }
     public decimal Price { get; set; }
+    public string? SelectedColor { get; set; }
+    public int? SelectedSize { get; set; }
+    public string? CustomNumber { get; set; }
+    public string? WritingColor { get; set; }
 }
 
 public record AdminOrderDetailResponse
@@ -140,6 +145,7 @@ public record AdminOrderDetailResponse
     public string? CouponCode { get; set; }
     public string? OrderCode { get; set; }
     public string? GuestEmail { get; set; }
+    public string? GuestName { get; set; }
     public string? PaymentMethod { get; set; }
     public DateTime CreatedAt { get; set; }
     public List<OrderItem> OrderItems { get; set; } = new();

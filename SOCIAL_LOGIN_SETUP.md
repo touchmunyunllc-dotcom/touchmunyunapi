@@ -133,3 +133,8 @@ The `users` table has been updated to support social login:
 - Verify the migration ran successfully
 - Check backend logs for errors
 
+# Set local username
+git config user.name "touch"
+
+# Set local email
+git config user.email "touchmunyunllc@gmail.com"

@@ -9,6 +9,8 @@ public class CartItem
     public int Quantity { get; set; }
     public string? SelectedColor { get; set; }
     public int? SelectedSize { get; set; }
+    public string? CustomNumber { get; set; }
+    public string? WritingColor { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

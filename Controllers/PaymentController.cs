@@ -117,10 +117,18 @@ public class PaymentsController : ControllerBase
                 result.PaymentIntentId,
                 result.OrderId));
         }
+        catch (StripeException ex)
+        {
+            _logger.LogError(ex, "Stripe error creating payment intent: {StripeError}", ex.StripeError?.Code);
+            return BadRequest(new
+            {
+                message = SanitizeStripeError(ex)
+            });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating payment intent");
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new { message = SanitizeStripeErrorMessage(ex.Message) });
         }
     }
 
@@ -248,10 +256,15 @@ public class PaymentsController : ControllerBase
 
             return Ok(new CheckoutSessionResponse(result.SessionId, result.Url));
         }
+        catch (StripeException ex)
+        {
+            _logger.LogError(ex, "Stripe error creating Checkout session: {StripeError}", ex.StripeError?.Code);
+            return BadRequest(new { message = SanitizeStripeError(ex) });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating Stripe Checkout session");
-            return BadRequest(new { message = ex.Message });
+            return BadRequest(new { message = SanitizeStripeErrorMessage(ex.Message) });
         }
     }
 
@@ -597,5 +610,24 @@ public class PaymentsController : ControllerBase
                 "Post-payment notifications failed for order {OrderId} (PI {Pi}); webhook still recorded as processed",
                 orderId, paymentIntentId);
         }
+    }
+
+    private static string SanitizeStripeError(StripeException ex) =>
+        SanitizeStripeErrorMessage(ex.StripeError?.Message ?? ex.Message);
+
+    private static string SanitizeStripeErrorMessage(string? message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return "Payment provider error. Please try again.";
+        }
+
+        // Stripe echoes key prefixes in Invalid API Key errors — map to an actionable ops message.
+        if (message.Contains("Invalid API Key", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Stripe API key on the server is invalid. On Render, set Stripe__SecretKey to a valid sk_test_... or sk_live_... secret key from the Stripe Dashboard (no quotes), then restart the API.";
+        }
+
+        return message;
     }
 }

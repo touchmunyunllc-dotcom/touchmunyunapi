@@ -230,8 +230,8 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
                 }
 
                 await _connection.ExecuteAsync(@"
-                    INSERT INTO order_items (id, order_id, product_id, quantity, price, created_at)
-                    VALUES (@Id, @OrderId, @ProductId, @Quantity, @Price, @CreatedAt)",
+                    INSERT INTO order_items (id, order_id, product_id, quantity, price, selected_color, selected_size, custom_number, writing_color, created_at)
+                    VALUES (@Id, @OrderId, @ProductId, @Quantity, @Price, @SelectedColor, @SelectedSize, @CustomNumber, @WritingColor, @CreatedAt)",
                     new
                     {
                         Id = Guid.NewGuid(),
@@ -239,6 +239,10 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
                         line.ProductId,
                         line.Quantity,
                         Price = line.UnitPrice,
+                        line.SelectedColor,
+                        line.SelectedSize,
+                        line.CustomNumber,
+                        line.WritingColor,
                         CreatedAt = DateTime.UtcNow
                     }, transaction);
             }
@@ -300,22 +304,49 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
 
         var orderCode = await _orderCodeService.GenerateOrderCodeAsync();
         var orderId = Guid.NewGuid();
+        Guid? shippingAddressId = null;
 
         using var transaction = _connection.BeginTransaction();
         try
         {
+            if (payload.GuestAddress != null
+                && !string.IsNullOrWhiteSpace(payload.GuestAddress.Line1)
+                && !string.IsNullOrWhiteSpace(payload.GuestAddress.City)
+                && !string.IsNullOrWhiteSpace(payload.GuestAddress.State)
+                && !string.IsNullOrWhiteSpace(payload.GuestAddress.PostalCode)
+                && !string.IsNullOrWhiteSpace(payload.GuestAddress.Country))
+            {
+                shippingAddressId = Guid.NewGuid();
+                await _connection.ExecuteAsync(@"
+                    INSERT INTO addresses (id, user_id, address_line1, address_line2, city, state, postal_code, country, is_default, created_at)
+                    VALUES (@Id, NULL, @Line1, @Line2, @City, @State, @PostalCode, @Country, FALSE, @CreatedAt)",
+                    new
+                    {
+                        Id = shippingAddressId,
+                        payload.GuestAddress.Line1,
+                        Line2 = payload.GuestAddress.Line2,
+                        payload.GuestAddress.City,
+                        payload.GuestAddress.State,
+                        payload.GuestAddress.PostalCode,
+                        payload.GuestAddress.Country,
+                        CreatedAt = DateTime.UtcNow
+                    }, transaction);
+            }
+
             await _connection.ExecuteAsync(@"
-                INSERT INTO orders (id, order_code, user_id, guest_email, total_amount, status, coupon_id, stripe_payment_intent_id, created_at)
-                VALUES (@Id, @OrderCode, NULL, @GuestEmail, @TotalAmount, @Status, @CouponId, @StripePaymentIntentId, @CreatedAt)",
+                INSERT INTO orders (id, order_code, user_id, guest_email, guest_name, total_amount, status, coupon_id, stripe_payment_intent_id, shipping_address_id, created_at)
+                VALUES (@Id, @OrderCode, NULL, @GuestEmail, @GuestName, @TotalAmount, @Status, @CouponId, @StripePaymentIntentId, @ShippingAddressId, @CreatedAt)",
                 new
                 {
                     Id = orderId,
                     OrderCode = orderCode,
                     GuestEmail = payload.GuestEmail.Trim(),
+                    GuestName = string.IsNullOrWhiteSpace(payload.GuestName) ? null : payload.GuestName.Trim(),
                     TotalAmount = payload.TotalAmount,
                     Status = OrderStatus.Paid.ToString(),
                     CouponId = payload.CouponId,
                     StripePaymentIntentId = paymentIntentId,
+                    ShippingAddressId = shippingAddressId,
                     CreatedAt = DateTime.UtcNow
                 }, transaction);
 
@@ -339,8 +370,8 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
                 }
 
                 await _connection.ExecuteAsync(@"
-                    INSERT INTO order_items (id, order_id, product_id, quantity, price, created_at)
-                    VALUES (@Id, @OrderId, @ProductId, @Quantity, @Price, @CreatedAt)",
+                    INSERT INTO order_items (id, order_id, product_id, quantity, price, selected_color, selected_size, custom_number, writing_color, created_at)
+                    VALUES (@Id, @OrderId, @ProductId, @Quantity, @Price, @SelectedColor, @SelectedSize, @CustomNumber, @WritingColor, @CreatedAt)",
                     new
                     {
                         Id = Guid.NewGuid(),
@@ -348,6 +379,10 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
                         line.ProductId,
                         line.Quantity,
                         Price = line.UnitPrice,
+                        line.SelectedColor,
+                        line.SelectedSize,
+                        line.CustomNumber,
+                        line.WritingColor,
                         CreatedAt = DateTime.UtcNow
                     }, transaction);
             }
