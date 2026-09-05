@@ -77,7 +77,7 @@ public sealed class PendingCheckoutLineItem
     public string? SelectedColor { get; set; }
 
     [JsonPropertyName("selectedSize")]
-    public int? SelectedSize { get; set; }
+    public string? SelectedSize { get; set; }
 
     [JsonPropertyName("customNumber")]
     public string? CustomNumber { get; set; }

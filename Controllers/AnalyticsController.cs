@@ -23,20 +23,7 @@ public class AnalyticsController : ControllerBase
         [FromQuery] string? startDate = null,
         [FromQuery] string? endDate = null)
     {
-        DateTime? parsedStartDate = null;
-        DateTime? parsedEndDate = null;
-        
-        if (!string.IsNullOrEmpty(startDate) && DateTime.TryParse(startDate, out var start))
-        {
-            parsedStartDate = start.ToUniversalTime();
-        }
-        
-        if (!string.IsNullOrEmpty(endDate) && DateTime.TryParse(endDate, out var end))
-        {
-            // Set end date to end of day in UTC
-            parsedEndDate = end.Date.AddDays(1).AddTicks(-1).ToUniversalTime();
-        }
-        
+        var (parsedStartDate, parsedEndDate) = ParseDateRange(startDate, endDate);
         var stats = await _analyticsService.GetDashboardStatsAsync(parsedStartDate, parsedEndDate);
 
         return Ok(new DashboardStatsResponse
@@ -57,19 +44,7 @@ public class AnalyticsController : ControllerBase
         [FromQuery] string? startDate = null,
         [FromQuery] string? endDate = null)
     {
-        DateTime? parsedStartDate = null;
-        DateTime? parsedEndDate = null;
-        
-        if (!string.IsNullOrEmpty(startDate) && DateTime.TryParse(startDate, out var start))
-        {
-            parsedStartDate = start.ToUniversalTime();
-        }
-        
-        if (!string.IsNullOrEmpty(endDate) && DateTime.TryParse(endDate, out var end))
-        {
-            parsedEndDate = end.Date.AddDays(1).AddTicks(-1).ToUniversalTime();
-        }
-        
+        var (parsedStartDate, parsedEndDate) = ParseDateRange(startDate, endDate);
         var summary = await _analyticsService.GetOrdersSummaryAsync(parsedStartDate, parsedEndDate);
 
         return Ok(new OrdersSummaryResponse
@@ -87,10 +62,11 @@ public class AnalyticsController : ControllerBase
     [HttpGet("revenue")]
     [ProducesResponseType(typeof(RevenueStatsResponse), 200)]
     public async Task<IActionResult> GetRevenueStats(
-        [FromQuery] DateTime? startDate = null,
-        [FromQuery] DateTime? endDate = null)
+        [FromQuery] string? startDate = null,
+        [FromQuery] string? endDate = null)
     {
-        var revenue = await _analyticsService.GetRevenueStatsAsync(startDate, endDate);
+        var (parsedStartDate, parsedEndDate) = ParseDateRange(startDate, endDate);
+        var revenue = await _analyticsService.GetRevenueStatsAsync(parsedStartDate, parsedEndDate);
 
         return Ok(new RevenueStatsResponse
         {
@@ -111,19 +87,7 @@ public class AnalyticsController : ControllerBase
         [FromQuery] string? startDate = null,
         [FromQuery] string? endDate = null)
     {
-        DateTime? parsedStartDate = null;
-        DateTime? parsedEndDate = null;
-        
-        if (!string.IsNullOrEmpty(startDate) && DateTime.TryParse(startDate, out var start))
-        {
-            parsedStartDate = start.ToUniversalTime();
-        }
-        
-        if (!string.IsNullOrEmpty(endDate) && DateTime.TryParse(endDate, out var end))
-        {
-            parsedEndDate = end.Date.AddDays(1).AddTicks(-1).ToUniversalTime();
-        }
-        
+        var (parsedStartDate, parsedEndDate) = ParseDateRange(startDate, endDate);
         var topProducts = await _analyticsService.GetTopSellingProductsAsync(limit, parsedStartDate, parsedEndDate);
 
         return Ok(topProducts.Select(p => new TopProductResponse
@@ -143,19 +107,7 @@ public class AnalyticsController : ControllerBase
         [FromQuery] string? endDate = null,
         [FromQuery] string groupBy = "day")
     {
-        DateTime? parsedStartDate = null;
-        DateTime? parsedEndDate = null;
-        
-        if (!string.IsNullOrEmpty(startDate) && DateTime.TryParse(startDate, out var start))
-        {
-            parsedStartDate = start.ToUniversalTime();
-        }
-        
-        if (!string.IsNullOrEmpty(endDate) && DateTime.TryParse(endDate, out var end))
-        {
-            parsedEndDate = end.Date.AddDays(1).AddTicks(-1).ToUniversalTime();
-        }
-        
+        var (parsedStartDate, parsedEndDate) = ParseDateRange(startDate, endDate);
         var timeSeries = await _analyticsService.GetTimeSeriesDataAsync(parsedStartDate, parsedEndDate, groupBy);
         return Ok(timeSeries.Select(t => new TimeSeriesDataResponse
         {
@@ -166,5 +118,26 @@ public class AnalyticsController : ControllerBase
             AverageOrderValue = t.AverageOrderValue,
             TotalCustomers = t.TotalCustomers
         }).ToList());
+    }
+
+    /// <summary>
+    /// Parse YYYY-MM-DD query params as UTC calendar dates (no local timezone shift).
+    /// </summary>
+    private static (DateTime? Start, DateTime? End) ParseDateRange(string? startDate, string? endDate)
+    {
+        DateTime? parsedStartDate = null;
+        DateTime? parsedEndDate = null;
+
+        if (!string.IsNullOrWhiteSpace(startDate) && DateTime.TryParse(startDate, out var start))
+        {
+            parsedStartDate = DateTime.SpecifyKind(start.Date, DateTimeKind.Utc);
+        }
+
+        if (!string.IsNullOrWhiteSpace(endDate) && DateTime.TryParse(endDate, out var end))
+        {
+            parsedEndDate = DateTime.SpecifyKind(end.Date.AddDays(1).AddTicks(-1), DateTimeKind.Utc);
+        }
+
+        return (parsedStartDate, parsedEndDate);
     }
 }

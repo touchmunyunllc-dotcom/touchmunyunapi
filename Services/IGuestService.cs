@@ -32,7 +32,7 @@ public record GuestOrderItem(
     decimal Price,
     int Quantity,
     string? SelectedColor = null,
-    int? SelectedSize = null,
+    string? SelectedSize = null,
     string? CustomNumber = null,
     string? WritingColor = null);
 

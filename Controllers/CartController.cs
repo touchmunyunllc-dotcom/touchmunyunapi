@@ -1,5 +1,6 @@
 using ECommerce.DTOs;
 using ECommerce.Models;
+using ECommerce.Utils;
 using ECommerce.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -35,6 +36,11 @@ public class CartController : ControllerBase
     [ProducesResponseType(400)]
     public async Task<IActionResult> AddToCart([FromBody] AddToCartRequest request)
     {
+        if (CustomerAccountGuard.RejectAdminShopping(User) is { } adminBlocked)
+        {
+            return adminBlocked;
+        }
+
         var validationResult = await _addToCartValidator.ValidateAsync(request);
         if (!validationResult.IsValid)
         {
@@ -188,16 +194,21 @@ public class CartController : ControllerBase
                 Id = item.Id,
                 ProductId = item.ProductId,
                 ProductName = item.Product?.Name ?? "",
-                ProductPrice = item.Product?.DisplayPrice ?? 0,
+                ProductPrice = item.Product != null
+                    ? ProductPricingRules.ResolveUnitPrice(item.Product, item.SelectedColor)
+                    : 0,
                 ProductImageUrl = item.Product?.ResolveImageForColor(item.SelectedColor)
                     ?? item.Product?.Images?.FirstOrDefault()
                     ?? "",
                 Quantity = item.Quantity,
-                Subtotal = (item.Product?.DisplayPrice ?? 0) * item.Quantity,
+                Subtotal = (item.Product != null
+                    ? ProductPricingRules.ResolveUnitPrice(item.Product, item.SelectedColor)
+                    : 0) * item.Quantity,
                 SelectedColor = item.SelectedColor,
                 SelectedSize = item.SelectedSize,
                 CustomNumber = item.CustomNumber,
-                WritingColor = item.WritingColor
+                WritingColor = item.WritingColor,
+                CustomizationPolicy = item.Product?.CustomizationPolicy
             }).ToList(),
             Subtotal = cart.Subtotal,
             Tax = cart.Tax,

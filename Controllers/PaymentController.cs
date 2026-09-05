@@ -1,6 +1,7 @@
 using ECommerce.DTOs;
 using ECommerce.Models;
 using ECommerce.Services;
+using ECommerce.Utils;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Data;
@@ -27,6 +28,7 @@ public class PaymentsController : ControllerBase
     private readonly ISMSService _smsService;
     private readonly IConfiguration _configuration;
     private readonly ILogger<PaymentsController> _logger;
+    private readonly IExceptionLogService _exceptionLogService;
 
     private static readonly JsonSerializerOptions PendingJsonOptions = new()
     {
@@ -44,7 +46,8 @@ public class PaymentsController : ControllerBase
         IEmailService emailService,
         ISMSService smsService,
         IConfiguration configuration,
-        ILogger<PaymentsController> logger)
+        ILogger<PaymentsController> logger,
+        IExceptionLogService exceptionLogService)
     {
         _paymentService = paymentService;
         _connection = connection;
@@ -56,6 +59,17 @@ public class PaymentsController : ControllerBase
         _smsService = smsService;
         _configuration = configuration;
         _logger = logger;
+        _exceptionLogService = exceptionLogService;
+    }
+
+    private Task LogPaymentErrorAsync(Exception ex, string source, object? additionalData = null)
+    {
+        return _exceptionLogService.LogImportantAsync(
+            ex,
+            source,
+            HttpContext,
+            Microsoft.AspNetCore.Http.StatusCodes.Status400BadRequest,
+            additionalData: additionalData);
     }
 
     [HttpPost("create-cod-order")]
@@ -64,6 +78,11 @@ public class PaymentsController : ControllerBase
     [ProducesResponseType(400)]
     public async Task<IActionResult> CreateCodOrder([FromBody] CreateCodOrderRequest request)
     {
+        if (CustomerAccountGuard.RejectAdminShopping(User) is { } adminBlocked)
+        {
+            return adminBlocked;
+        }
+
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId == null)
         {
@@ -87,6 +106,7 @@ public class PaymentsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating COD order");
+            await LogPaymentErrorAsync(ex, "PaymentsController.CreateCodOrder");
             return BadRequest(new { message = ex.Message });
         }
     }
@@ -97,6 +117,11 @@ public class PaymentsController : ControllerBase
     [ProducesResponseType(400)]
     public async Task<IActionResult> CreatePaymentIntent([FromBody] CreatePaymentIntentRequest request)
     {
+        if (CustomerAccountGuard.RejectAdminShopping(User) is { } adminBlocked)
+        {
+            return adminBlocked;
+        }
+
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId == null)
         {
@@ -120,6 +145,7 @@ public class PaymentsController : ControllerBase
         catch (StripeException ex)
         {
             _logger.LogError(ex, "Stripe error creating payment intent: {StripeError}", ex.StripeError?.Code);
+            await LogPaymentErrorAsync(ex, "PaymentsController.CreatePaymentIntent", new { ex.StripeError?.Code });
             return BadRequest(new
             {
                 message = SanitizeStripeError(ex)
@@ -128,6 +154,7 @@ public class PaymentsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating payment intent");
+            await LogPaymentErrorAsync(ex, "PaymentsController.CreatePaymentIntent");
             return BadRequest(new { message = SanitizeStripeErrorMessage(ex.Message) });
         }
     }
@@ -220,6 +247,7 @@ public class PaymentsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "confirm-stripe-checkout failed for PI {Pi}", piId);
+            await LogPaymentErrorAsync(ex, "PaymentsController.ConfirmStripeCheckout", new { paymentIntentId = piId });
             return BadRequest(new { message = ex.Message });
         }
     }
@@ -231,6 +259,11 @@ public class PaymentsController : ControllerBase
     [ProducesResponseType(400)]
     public async Task<IActionResult> CreateCheckoutSession([FromBody] CreateCheckoutSessionRequest request)
     {
+        if (CustomerAccountGuard.RejectAdminShopping(User) is { } adminBlocked)
+        {
+            return adminBlocked;
+        }
+
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId == null)
         {
@@ -259,11 +292,13 @@ public class PaymentsController : ControllerBase
         catch (StripeException ex)
         {
             _logger.LogError(ex, "Stripe error creating Checkout session: {StripeError}", ex.StripeError?.Code);
+            await LogPaymentErrorAsync(ex, "PaymentsController.CreateCheckoutSession", new { ex.StripeError?.Code });
             return BadRequest(new { message = SanitizeStripeError(ex) });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error creating Stripe Checkout session");
+            await LogPaymentErrorAsync(ex, "PaymentsController.CreateCheckoutSession");
             return BadRequest(new { message = SanitizeStripeErrorMessage(ex.Message) });
         }
     }
@@ -336,6 +371,7 @@ public class PaymentsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "resolve-checkout-session failed for session {SessionId}", sessionId);
+            await LogPaymentErrorAsync(ex, "PaymentsController.ResolveCheckoutSession", new { sessionId });
             return BadRequest(new { message = ex.Message });
         }
     }
@@ -512,11 +548,13 @@ public class PaymentsController : ControllerBase
         catch (StripeException ex)
         {
             _logger.LogError(ex, "Stripe webhook error");
+            await LogPaymentErrorAsync(ex, "PaymentsController.StripeWebhook");
             return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error processing webhook");
+            await LogPaymentErrorAsync(ex, "PaymentsController.StripeWebhook");
             return BadRequest(new { message = "Error processing webhook" });
         }
     }

@@ -1,4 +1,3 @@
-using ECommerce.Data;
 using ECommerce.Models;
 using ECommerce.Utils;
 using System.Data;
@@ -11,7 +10,7 @@ public class CartService : ICartService
     private readonly IDbConnection _connection;
     private readonly ICouponService _couponService;
     private readonly ILogger<CartService> _logger;
-    private const decimal TAX_RATE = 0.10m; // 10% tax
+    private const decimal TAX_RATE = 0.10m;
 
     private const string PRODUCT_SELECT_COLUMNS = @"
         id AS Id,
@@ -27,6 +26,10 @@ public class CartService : ICartService
         sizes AS Sizes,
         COALESCE(color_images::text, '{}') AS ColorImagesJson,
         customization_type AS CustomizationType,
+        color_surcharge AS ColorSurcharge,
+        no_surcharge_colors AS NoSurchargeColors,
+        customization_policy AS CustomizationPolicy,
+        image_object_position AS ImageObjectPosition,
         is_active AS IsActive,
         created_at AS CreatedAt,
         updated_at AS UpdatedAt";
@@ -55,7 +58,7 @@ public class CartService : ICartService
         Guid productId,
         int quantity,
         string? selectedColor = null,
-        int? selectedSize = null,
+        string? selectedSize = null,
         string? customNumber = null,
         string? writingColor = null)
     {
@@ -63,11 +66,6 @@ public class CartService : ICartService
         if (quantity > MAX_QUANTITY_PER_PRODUCT)
         {
             throw new CartValidationException($"Maximum quantity allowed per product is {MAX_QUANTITY_PER_PRODUCT}. You requested {quantity}.");
-        }
-
-        if (selectedSize.HasValue && (selectedSize.Value < 1 || selectedSize.Value > 100))
-        {
-            throw new CartValidationException("Size must be between 1 and 100.");
         }
 
         var product = await _connection.QueryFirstOrDefaultAsync<Product>(
@@ -82,7 +80,7 @@ public class CartService : ICartService
         product.HydrateColorImages();
 
         var normalizedNumber = ProductCustomizationRules.NormalizeNumber(customNumber);
-        var normalizedWriting = ProductCustomizationRules.NormalizeWritingColor(writingColor);
+        var normalizedWriting = ProductCustomizationRules.NormalizeWritingColor(product, writingColor);
         ProductCustomizationRules.ValidateForCart(product, selectedColor, normalizedNumber, normalizedWriting);
 
         if (product.AvailableQuantity < quantity)
@@ -96,18 +94,18 @@ public class CartService : ICartService
             throw new CartValidationException($"Color '{selectedColor}' is not available for this product.");
         }
 
-        if (selectedSize.HasValue && product.Sizes.Count > 0 && !product.Sizes.Contains(selectedSize.Value))
+        if (!string.IsNullOrWhiteSpace(selectedSize) && product.Sizes.Count > 0
+            && !product.Sizes.Any(s => s.Equals(selectedSize.Trim(), StringComparison.OrdinalIgnoreCase)))
         {
             throw new CartValidationException($"Size '{selectedSize}' is not available for this product.");
         }
 
-        // Match same variant line (color/size/customization), not just product
         var existingItem = await _connection.QueryFirstOrDefaultAsync<CartItem>(
             $@"SELECT {CART_ITEM_SELECT}
               FROM cart_items
               WHERE user_id = @UserId AND product_id = @ProductId
                 AND COALESCE(selected_color, '') = COALESCE(@SelectedColor, '')
-                AND selected_size IS NOT DISTINCT FROM @SelectedSize
+                AND COALESCE(selected_size, '') = COALESCE(@SelectedSize, '')
                 AND COALESCE(custom_number, '') = COALESCE(@CustomNumber, '')
                 AND COALESCE(writing_color, '') = COALESCE(@WritingColor, '')",
             new
@@ -115,7 +113,7 @@ public class CartService : ICartService
                 UserId = userId,
                 ProductId = productId,
                 SelectedColor = selectedColor,
-                SelectedSize = selectedSize,
+                SelectedSize = selectedSize?.Trim(),
                 CustomNumber = normalizedNumber,
                 WritingColor = normalizedWriting
             });
@@ -138,7 +136,7 @@ public class CartService : ICartService
             ProductId = productId,
             Quantity = quantity,
             SelectedColor = selectedColor,
-            SelectedSize = selectedSize,
+            SelectedSize = selectedSize?.Trim(),
             CustomNumber = normalizedNumber,
             WritingColor = normalizedWriting,
             CreatedAt = DateTime.UtcNow,
@@ -200,18 +198,17 @@ public class CartService : ICartService
 
         var summary = new CartSummary { Items = cartItems };
 
-        // Calculate subtotal
-        summary.Subtotal = cartItems.Sum(item => 
-            (item.Product?.DisplayPrice ?? 0) * item.Quantity);
+        summary.Subtotal = cartItems.Sum(item =>
+            (item.Product != null
+                ? ProductPricingRules.ResolveUnitPrice(item.Product, item.SelectedColor)
+                : 0) * item.Quantity);
 
-        // Calculate tax
         summary.Tax = await CalculateTaxAsync(summary.Subtotal);
 
-        // Apply coupon if provided
         if (!string.IsNullOrEmpty(couponCode))
         {
             try
-        {
+            {
                 var discount = await _couponService.ApplyCouponAsync(couponCode, summary.Subtotal);
                 summary.Discount = summary.Subtotal - discount;
                 summary.AppliedCoupon = await _connection.QueryFirstOrDefaultAsync<Coupon>(
@@ -227,49 +224,35 @@ public class CartService : ICartService
                         min_purchase_amount AS MinPurchaseAmount,
                         max_discount_amount AS MaxDiscountAmount,
                         created_at AS CreatedAt
-                      FROM coupons WHERE code = @Code",
+                      FROM coupons WHERE UPPER(code) = UPPER(@Code) AND is_active = TRUE",
                     new { Code = couponCode });
             }
-            catch (Exception ex)
+            catch
             {
-                _logger.LogWarning(ex, "Failed to apply coupon {CouponCode}", couponCode);
+                // Coupon invalid, keep original totals
             }
         }
 
-        summary.Total = summary.Subtotal + summary.Tax - summary.Discount;
-
+        summary.Total = summary.Subtotal - summary.Discount + summary.Tax;
         return summary;
     }
 
     public async Task<bool> UpdateCartItemQuantityAsync(Guid userId, Guid itemId, int quantity)
     {
+        const int MAX_QUANTITY_PER_PRODUCT = 10;
+        if (quantity > MAX_QUANTITY_PER_PRODUCT)
+        {
+            throw new CartValidationException($"Maximum quantity allowed per product is {MAX_QUANTITY_PER_PRODUCT}.");
+        }
+
         if (quantity <= 0)
         {
             return await RemoveFromCartAsync(userId, itemId);
         }
 
-        // Verify stock availability
-        var item = await _connection.QueryFirstOrDefaultAsync<CartItem>(
-            $@"SELECT {CART_ITEM_SELECT}
-              FROM cart_items WHERE id = @ItemId AND user_id = @UserId",
-            new { ItemId = itemId, UserId = userId });
-
-        if (item == null)
-        {
-            return false;
-        }
-
-        var product = await _connection.QueryFirstOrDefaultAsync<Product>(
-            $"SELECT {PRODUCT_SELECT_COLUMNS} FROM products WHERE id = @ProductId",
-            new { ProductId = item.ProductId });
-
-        if (product == null || product.AvailableQuantity < quantity)
-        {
-            throw new InsufficientStockException(product?.Name ?? "Unknown", product?.AvailableQuantity ?? 0);
-        }
-
         var affected = await _connection.ExecuteAsync(
-            "UPDATE cart_items SET quantity = @Quantity, updated_at = CURRENT_TIMESTAMP WHERE id = @ItemId AND user_id = @UserId",
+            @"UPDATE cart_items SET quantity = @Quantity, updated_at = CURRENT_TIMESTAMP 
+              WHERE id = @ItemId AND user_id = @UserId",
             new { Quantity = quantity, ItemId = itemId, UserId = userId });
 
         return affected > 0;
@@ -280,9 +263,7 @@ public class CartService : ICartService
         var affected = await _connection.ExecuteAsync(
             "DELETE FROM cart_items WHERE user_id = @UserId",
             new { UserId = userId });
-
-        _logger.LogInformation("Cleared cart for user {UserId}", userId);
-        return affected > 0;
+        return affected >= 0;
     }
 
     public async Task<CartSummary> ApplyCouponAsync(Guid userId, string couponCode)
@@ -295,4 +276,3 @@ public class CartService : ICartService
         return Task.FromResult(subtotal * TAX_RATE);
     }
 }
-

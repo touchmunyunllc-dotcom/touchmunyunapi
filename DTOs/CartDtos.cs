@@ -4,7 +4,7 @@ public record AddToCartRequest(
     Guid ProductId,
     int Quantity,
     string? SelectedColor = null,
-    int? SelectedSize = null,
+    string? SelectedSize = null,
     string? CustomNumber = null,
     string? WritingColor = null);
 public record UpdateCartItemRequest(int Quantity);
@@ -19,9 +19,10 @@ public record CartItemResponse
     public int Quantity { get; init; }
     public decimal Subtotal { get; init; }
     public string? SelectedColor { get; init; }
-    public int? SelectedSize { get; init; }
+    public string? SelectedSize { get; init; }
     public string? CustomNumber { get; init; }
     public string? WritingColor { get; init; }
+    public string? CustomizationPolicy { get; init; }
 }
 
 public record CouponInfo

@@ -476,6 +476,35 @@ public class DbContext : IDbContext
                 "CREATE INDEX IF NOT EXISTS idx_stripe_hosted_checkout_pending_created_at ON stripe_hosted_checkout_pending (created_at);");
 
             await connection.ExecuteAsync(@"
+                CREATE TABLE IF NOT EXISTS exception_logs (
+                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    severity VARCHAR(20) NOT NULL DEFAULT 'Error',
+                    exception_type VARCHAR(500) NOT NULL,
+                    message TEXT NOT NULL,
+                    stack_trace TEXT,
+                    source VARCHAR(200) NOT NULL,
+                    http_method VARCHAR(10),
+                    request_path VARCHAR(2000),
+                    status_code INTEGER,
+                    correlation_id VARCHAR(64),
+                    user_id UUID,
+                    client_ip VARCHAR(45),
+                    additional_data JSONB,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );");
+            await connection.ExecuteAsync(
+                "CREATE INDEX IF NOT EXISTS idx_exception_logs_created_at ON exception_logs (created_at DESC);");
+            await connection.ExecuteAsync(
+                "CREATE INDEX IF NOT EXISTS idx_exception_logs_severity ON exception_logs (severity);");
+            await connection.ExecuteAsync(
+                "CREATE INDEX IF NOT EXISTS idx_exception_logs_correlation_id ON exception_logs (correlation_id) WHERE correlation_id IS NOT NULL;");
+
+            await connection.ExecuteAsync(@"
+                ALTER TABLE products ADD COLUMN IF NOT EXISTS is_new_arrival BOOLEAN NOT NULL DEFAULT FALSE;
+                ALTER TABLE products ADD COLUMN IF NOT EXISTS is_best_seller BOOLEAN NOT NULL DEFAULT FALSE;
+                ALTER TABLE products ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT FALSE;");
+
+            await connection.ExecuteAsync(@"
                 CREATE UNIQUE INDEX IF NOT EXISTS uq_orders_stripe_payment_intent_id
                 ON orders (stripe_payment_intent_id)
                 WHERE stripe_payment_intent_id IS NOT NULL;");
@@ -545,6 +574,52 @@ public class DbContext : IDbContext
                         WHERE table_name = 'orders' AND column_name = 'guest_name'
                     ) THEN
                         ALTER TABLE orders ADD COLUMN guest_name VARCHAR(255);
+                    END IF;
+                END $$;");
+
+            await connection.ExecuteAsync(@"
+                ALTER TABLE products ADD COLUMN IF NOT EXISTS color_surcharge DECIMAL(18, 2) NOT NULL DEFAULT 0;
+                ALTER TABLE products ADD COLUMN IF NOT EXISTS no_surcharge_colors TEXT[] DEFAULT ARRAY[]::TEXT[];
+                ALTER TABLE products ADD COLUMN IF NOT EXISTS customization_policy TEXT;
+                ALTER TABLE products ADD COLUMN IF NOT EXISTS image_object_position VARCHAR(50);");
+
+            // Apparel sizes as text (XS, S, M, L, XL) and cart/order size columns
+            await connection.ExecuteAsync(@"
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'products' AND column_name = 'sizes'
+                          AND udt_name = '_int4'
+                    ) THEN
+                ALTER TABLE products ALTER COLUMN sizes TYPE TEXT[]
+                    USING ARRAY[]::TEXT[];
+                    END IF;
+                END $$;");
+
+            await connection.ExecuteAsync(@"
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'cart_items' AND column_name = 'selected_size'
+                          AND data_type = 'integer'
+                    ) THEN
+                        ALTER TABLE cart_items ALTER COLUMN selected_size TYPE VARCHAR(20)
+                            USING selected_size::text;
+                    END IF;
+                END $$;");
+
+            await connection.ExecuteAsync(@"
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_name = 'order_items' AND column_name = 'selected_size'
+                          AND data_type = 'integer'
+                    ) THEN
+                        ALTER TABLE order_items ALTER COLUMN selected_size TYPE VARCHAR(20)
+                            USING selected_size::text;
                     END IF;
                 END $$;");
         }

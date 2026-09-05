@@ -77,7 +77,7 @@ public class GuestService : IGuestService
                 }
 
                 var normalizedNumber = ProductCustomizationRules.NormalizeNumber(item.CustomNumber);
-                var normalizedWriting = ProductCustomizationRules.NormalizeWritingColor(item.WritingColor);
+                var normalizedWriting = ProductCustomizationRules.NormalizeWritingColor(product, item.WritingColor);
                 ProductCustomizationRules.ValidateForCart(
                     product,
                     item.SelectedColor,
@@ -90,13 +90,14 @@ public class GuestService : IGuestService
                     throw new CartValidationException($"Color '{item.SelectedColor}' is not available for this product.");
                 }
 
-                if (item.SelectedSize.HasValue && product.Sizes.Count > 0 && !product.Sizes.Contains(item.SelectedSize.Value))
+                if (!string.IsNullOrWhiteSpace(item.SelectedSize) && product.Sizes.Count > 0
+                    && !product.Sizes.Any(s => s.Equals(item.SelectedSize.Trim(), StringComparison.OrdinalIgnoreCase)))
                 {
                     throw new CartValidationException($"Size '{item.SelectedSize}' is not available for this product.");
                 }
             }
 
-            var unitPrice = product.DisplayPrice;
+            var unitPrice = ProductPricingRules.ResolveUnitPrice(product, item.SelectedColor);
             subtotal += unitPrice * item.Quantity;
             lines.Add(new PendingCheckoutLineItem
             {
@@ -104,9 +105,9 @@ public class GuestService : IGuestService
                 Quantity = item.Quantity,
                 UnitPrice = unitPrice,
                 SelectedColor = item.SelectedColor,
-                SelectedSize = item.SelectedSize,
+                SelectedSize = item.SelectedSize?.Trim(),
                 CustomNumber = ProductCustomizationRules.NormalizeNumber(item.CustomNumber),
-                WritingColor = ProductCustomizationRules.NormalizeWritingColor(item.WritingColor)
+                WritingColor = ProductCustomizationRules.NormalizeWritingColor(product, item.WritingColor)
             });
         }
 

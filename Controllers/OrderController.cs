@@ -19,11 +19,38 @@ public class OrderController : ControllerBase
         _orderService = orderService;
     }
 
+    [HttpGet("user/summary")]
+    [ProducesResponseType(typeof(UserOrdersSummaryResponse), 200)]
+    public async Task<IActionResult> GetUserOrdersSummary(
+        [FromQuery] DateTime? startDate = null,
+        [FromQuery] DateTime? endDate = null)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId == null || !Guid.TryParse(userId, out var userIdGuid))
+        {
+            return Unauthorized();
+        }
+
+        var summary = await _orderService.GetUserOrdersSummaryAsync(userIdGuid, startDate, endDate);
+
+        return Ok(new UserOrdersSummaryResponse
+        {
+            TotalCount = summary.TotalCount,
+            Pending = summary.Pending,
+            Delivered = summary.Delivered,
+            Cancelled = summary.Cancelled,
+        });
+    }
+
     [HttpGet("user")]
     [ProducesResponseType(typeof(List<Order>), 200)]
+    [ProducesResponseType(typeof(UserOrdersResponse), 200)]
     public async Task<IActionResult> GetUserOrders(
         [FromQuery] DateTime? startDate = null,
         [FromQuery] DateTime? endDate = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? statusGroup = null,
         [FromQuery] int limit = 5)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -32,14 +59,37 @@ public class OrderController : ControllerBase
             return Unauthorized();
         }
 
-        // Validate limit (max 50 to prevent abuse)
+        if (page.HasValue && pageSize.HasValue)
+        {
+            var safePage = page.Value < 1 ? 1 : page.Value;
+            var safePageSize = pageSize.Value switch
+            {
+                < 1 => 10,
+                > 50 => 50,
+                _ => pageSize.Value
+            };
+
+            var (orders, totalCount) = await _orderService.GetUserOrdersPaginatedAsync(
+                userIdGuid, startDate, endDate, safePage, safePageSize, statusGroup);
+
+            return Ok(new UserOrdersResponse
+            {
+                Orders = orders,
+                TotalCount = totalCount,
+                Page = safePage,
+                PageSize = safePageSize,
+                TotalPages = totalCount == 0 ? 0 : (int)Math.Ceiling(totalCount / (double)safePageSize)
+            });
+        }
+
+        // Backward compatibility for callers using limit only
         if (limit < 1 || limit > 50)
         {
             limit = 5;
         }
 
-        var orders = await _orderService.GetUserOrdersAsync(userIdGuid, startDate, endDate, limit);
-        return Ok(orders);
+        var legacyOrders = await _orderService.GetUserOrdersAsync(userIdGuid, startDate, endDate, limit);
+        return Ok(legacyOrders);
     }
 
     [HttpGet("by-payment-intent/{paymentIntentId}")]

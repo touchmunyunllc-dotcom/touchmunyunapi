@@ -135,7 +135,11 @@ public class AdminService : IAdminService
                     oi.custom_number,
                     oi.writing_color,
                     p.name as product_name,
-                    p.sku as product_sku
+                    p.sku as product_sku,
+                    CASE
+                        WHEN p.images IS NOT NULL AND array_length(p.images, 1) > 0 THEN p.images[1]
+                        ELSE NULL
+                    END as product_image_url
                 FROM order_items oi
                 LEFT JOIN products p ON oi.product_id = p.id
                 WHERE oi.order_id IN ({string.Join(",", orderIds.Select((_, i) => $"@OrderId{i}"))})";
@@ -183,6 +187,8 @@ public class AdminService : IAdminService
             OrderItems = orderItems.ContainsKey((Guid)o.id) 
                 ? orderItems[(Guid)o.id].Select(item => new AdminOrderItemInfo
                 {
+                    ProductId = item.product_id,
+                    ImageUrl = item.product_image_url,
                     ProductName = item.product_name ?? "Unknown Product",
                     ProductSku = item.product_sku ?? "N/A",
                     Quantity = item.quantity,

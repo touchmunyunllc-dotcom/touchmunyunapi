@@ -78,7 +78,9 @@ public class PaymentService : IPaymentService
             {
                 ProductId = ci.ProductId,
                 Quantity = ci.Quantity,
-                UnitPrice = ci.Product != null ? ci.Product.DisplayPrice : 0,
+                UnitPrice = ci.Product != null
+                    ? ProductPricingRules.ResolveUnitPrice(ci.Product, ci.SelectedColor)
+                    : 0,
                 SelectedColor = ci.SelectedColor,
                 SelectedSize = ci.SelectedSize,
                 CustomNumber = ci.CustomNumber,
@@ -227,7 +229,9 @@ public class PaymentService : IPaymentService
                     OrderId = order.Id,
                     ProductId = cartItem.ProductId,
                     Quantity = cartItem.Quantity,
-                    Price = cartItem.Product != null ? cartItem.Product.DisplayPrice : 0,
+                    Price = cartItem.Product != null
+                        ? ProductPricingRules.ResolveUnitPrice(cartItem.Product, cartItem.SelectedColor)
+                        : 0,
                     SelectedColor = cartItem.SelectedColor,
                     SelectedSize = cartItem.SelectedSize,
                     CustomNumber = cartItem.CustomNumber,

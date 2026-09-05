@@ -296,6 +296,7 @@ builder.Services.AddScoped<ISlideshowService, SlideshowService>();
 builder.Services.AddScoped<IStartupService, StartupService>();
 builder.Services.AddSingleton<IRecaptchaService, RecaptchaService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
+builder.Services.AddScoped<IExceptionLogService, ExceptionLogService>();
 
 // Register notification queue service (singleton for background processing)
 builder.Services.AddSingleton<NotificationQueueService>();

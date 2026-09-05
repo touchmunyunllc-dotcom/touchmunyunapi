@@ -21,6 +21,10 @@ public class OrderService : IOrderService
         sizes AS Sizes,
         COALESCE(color_images::text, '{}') AS ColorImagesJson,
         customization_type AS CustomizationType,
+        color_surcharge AS ColorSurcharge,
+        no_surcharge_colors AS NoSurchargeColors,
+        customization_policy AS CustomizationPolicy,
+        image_object_position AS ImageObjectPosition,
         is_active AS IsActive,
         created_at AS CreatedAt,
         updated_at AS UpdatedAt";
@@ -85,6 +89,112 @@ public class OrderService : IOrderService
         await LoadOrderItemsAsync(orderList);
 
         return orderList;
+    }
+
+    public async Task<(List<Order> Orders, int TotalCount)> GetUserOrdersPaginatedAsync(
+        Guid userId,
+        DateTime? startDate = null,
+        DateTime? endDate = null,
+        int page = 1,
+        int pageSize = 10,
+        string? statusGroup = null)
+    {
+        var whereSql = "FROM orders WHERE user_id = @UserId";
+        var parameters = new DynamicParameters();
+        parameters.Add("UserId", userId);
+
+        if (startDate.HasValue)
+        {
+            whereSql += " AND created_at >= @StartDate";
+            parameters.Add("StartDate", startDate.Value);
+        }
+
+        if (endDate.HasValue)
+        {
+            whereSql += " AND created_at <= @EndDate";
+            parameters.Add("EndDate", endDate.Value);
+        }
+
+        whereSql += BuildStatusGroupFilter(statusGroup);
+
+        var totalCount = await _connection.QueryFirstOrDefaultAsync<int>(
+            $"SELECT COUNT(*) {whereSql}",
+            parameters);
+
+        var offset = (page - 1) * pageSize;
+        parameters.Add("PageSize", pageSize);
+        parameters.Add("Offset", offset);
+
+        var orders = await _connection.QueryAsync<Order>(
+            $@"SELECT 
+                id AS Id,
+                order_code AS OrderCode,
+                user_id AS UserId,
+                guest_email AS GuestEmail,
+                total_amount AS TotalAmount,
+                status AS Status,
+                coupon_id AS CouponId,
+                shipping_address_id AS ShippingAddressId,
+                stripe_payment_intent_id AS StripePaymentIntentId,
+                tracking_number AS TrackingNumber,
+                tracking_url AS TrackingUrl,
+                notes AS Notes,
+                cancellation_reason AS CancellationReason,
+                created_at AS CreatedAt,
+                updated_at AS UpdatedAt
+              {whereSql}
+              ORDER BY created_at DESC
+              LIMIT @PageSize OFFSET @Offset",
+            parameters);
+
+        var orderList = orders.ToList();
+        await LoadOrderItemsAsync(orderList);
+
+        return (orderList, totalCount);
+    }
+
+    public async Task<UserOrdersSummary> GetUserOrdersSummaryAsync(
+        Guid userId,
+        DateTime? startDate = null,
+        DateTime? endDate = null)
+    {
+        var whereSql = "FROM orders WHERE user_id = @UserId";
+        var parameters = new DynamicParameters();
+        parameters.Add("UserId", userId);
+
+        if (startDate.HasValue)
+        {
+            whereSql += " AND created_at >= @StartDate";
+            parameters.Add("StartDate", startDate.Value);
+        }
+
+        if (endDate.HasValue)
+        {
+            whereSql += " AND created_at <= @EndDate";
+            parameters.Add("EndDate", endDate.Value);
+        }
+
+        var summary = await _connection.QueryFirstOrDefaultAsync<UserOrdersSummary>(
+            $@"SELECT
+                COUNT(*)::integer AS TotalCount,
+                COUNT(*) FILTER (WHERE status = 'Pending')::integer AS Pending,
+                COUNT(*) FILTER (WHERE status = 'Delivered')::integer AS Delivered,
+                COUNT(*) FILTER (WHERE status = 'Cancelled')::integer AS Cancelled
+              {whereSql}",
+            parameters);
+
+        return summary ?? new UserOrdersSummary(0, 0, 0, 0);
+    }
+
+    private static string BuildStatusGroupFilter(string? statusGroup)
+    {
+        return statusGroup?.Trim().ToLowerInvariant() switch
+        {
+            "pending" => " AND status = 'Pending'",
+            "delivered" => " AND status = 'Delivered'",
+            "cancelled" => " AND status = 'Cancelled'",
+            _ => string.Empty,
+        };
     }
 
     public async Task<Order?> GetOrderByIdAsync(Guid orderId, Guid? userId = null)
@@ -264,7 +374,7 @@ public class OrderService : IOrderService
                     OrderId = order.Id,
                     ProductId = item.ProductId,
                     Quantity = item.Quantity,
-                    Price = product.DisplayPrice,
+                    Price = ProductPricingRules.ResolveUnitPrice(product, item.SelectedColor),
                     SelectedColor = item.SelectedColor,
                     SelectedSize = item.SelectedSize,
                     CustomNumber = item.CustomNumber,
@@ -289,7 +399,7 @@ public class OrderService : IOrderService
                     }, transaction);
 
                 order.OrderItems.Add(orderItem);
-                total += product.Price * item.Quantity;
+                total += orderItem.Price * item.Quantity;
 
                 // Update stock directly via SQL (ProductService.UpdateProductAsync might not handle stock updates in transaction)
                 await _connection.ExecuteAsync(

@@ -5,6 +5,17 @@ namespace ECommerce.Services;
 public interface IOrderService
 {
     Task<List<Order>> GetUserOrdersAsync(Guid userId, DateTime? startDate = null, DateTime? endDate = null, int limit = 5);
+    Task<(List<Order> Orders, int TotalCount)> GetUserOrdersPaginatedAsync(
+        Guid userId,
+        DateTime? startDate = null,
+        DateTime? endDate = null,
+        int page = 1,
+        int pageSize = 10,
+        string? statusGroup = null);
+    Task<UserOrdersSummary> GetUserOrdersSummaryAsync(
+        Guid userId,
+        DateTime? startDate = null,
+        DateTime? endDate = null);
     Task<Order?> GetOrderByIdAsync(Guid orderId, Guid? userId = null);
 
     Task<Order?> GetOrderByStripePaymentIntentAsync(Guid userId, string paymentIntentId);
@@ -23,11 +34,17 @@ public interface IOrderService
     Task<Order?> CancelOrderAsync(Guid orderId, Guid userId, string cancellationReason);
 }
 
+public record UserOrdersSummary(
+    int TotalCount,
+    int Pending,
+    int Delivered,
+    int Cancelled);
+
 public record OrderItemRequest(
     Guid ProductId,
     int Quantity,
     string? SelectedColor = null,
-    int? SelectedSize = null,
+    string? SelectedSize = null,
     string? CustomNumber = null,
     string? WritingColor = null);
 

@@ -84,10 +84,11 @@ public class ProductsController : ControllerBase
     [ProducesResponseType(400)]
     public async Task<IActionResult> CreateProduct([FromBody] CreateProductRequest request)
     {
-        // Convert single ImageUrl to Images list for backward compatibility
-        var images = string.IsNullOrEmpty(request.ImageUrl) 
-            ? new List<string>() 
-            : new List<string> { request.ImageUrl };
+        var images = ResolveProductImages(request.Images, request.ImageUrl);
+        if (images.Count == 0)
+        {
+            return BadRequest(new { message = "At least one product image is required" });
+        }
 
         var product = await _productService.CreateProductAsync(
             request.Name,
@@ -99,7 +100,14 @@ public class ProductsController : ControllerBase
             colors: request.Colors,
             sizes: request.Sizes,
             colorImages: request.ColorImages,
-            customizationType: request.CustomizationType);
+            customizationType: request.CustomizationType,
+            colorSurcharge: request.ColorSurcharge,
+            noSurchargeColors: request.NoSurchargeColors,
+            customizationPolicy: request.CustomizationPolicy,
+            imageObjectPosition: request.ImageObjectPosition,
+            isNewArrival: request.IsNewArrival,
+            isBestSeller: request.IsBestSeller,
+            isFeatured: request.IsFeatured);
 
         if (request.SalePrice.HasValue)
         {
@@ -116,9 +124,12 @@ public class ProductsController : ControllerBase
     [ProducesResponseType(404)]
     public async Task<IActionResult> UpdateProduct(Guid id, [FromBody] UpdateProductRequest request)
     {
-        // Convert ImageUrl to Images list if provided
         List<string>? images = null;
-        if (!string.IsNullOrEmpty(request.ImageUrl))
+        if (request.Images != null)
+        {
+            images = ResolveProductImages(request.Images, null);
+        }
+        else if (!string.IsNullOrEmpty(request.ImageUrl))
         {
             images = new List<string> { request.ImageUrl };
         }
@@ -134,7 +145,14 @@ public class ProductsController : ControllerBase
             colors: request.Colors,
             sizes: request.Sizes,
             colorImages: request.ColorImages,
-            customizationType: request.CustomizationType);
+            customizationType: request.CustomizationType,
+            colorSurcharge: request.ColorSurcharge,
+            noSurchargeColors: request.NoSurchargeColors,
+            customizationPolicy: request.CustomizationPolicy,
+            imageObjectPosition: request.ImageObjectPosition,
+            isNewArrival: request.IsNewArrival,
+            isBestSeller: request.IsBestSeller,
+            isFeatured: request.IsFeatured);
 
         if (updatedProduct == null)
         {
@@ -241,5 +259,32 @@ public class ProductsController : ControllerBase
         }
 
         return Ok(updatedProduct);
+    }
+
+    private static List<string> ResolveProductImages(List<string>? images, string? imageUrl)
+    {
+        var resolved = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        if (images != null)
+        {
+            foreach (var url in images)
+            {
+                var trimmed = url?.Trim();
+                if (string.IsNullOrEmpty(trimmed) || !seen.Add(trimmed))
+                {
+                    continue;
+                }
+
+                resolved.Add(trimmed);
+            }
+        }
+
+        if (resolved.Count == 0 && !string.IsNullOrWhiteSpace(imageUrl))
+        {
+            resolved.Add(imageUrl.Trim());
+        }
+
+        return resolved;
     }
 }

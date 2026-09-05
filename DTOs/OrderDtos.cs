@@ -8,7 +8,7 @@ public record OrderItemRequest(
     Guid ProductId,
     int Quantity,
     string? SelectedColor = null,
-    int? SelectedSize = null,
+    string? SelectedSize = null,
     string? CustomNumber = null,
     string? WritingColor = null);
 
@@ -21,3 +21,20 @@ public record OrderTrackingResponse(
     DateTime? UpdatedAt);
 
 public record CancelOrderRequest(string Reason);
+
+public record UserOrdersResponse
+{
+    public List<Models.Order> Orders { get; init; } = new();
+    public int TotalCount { get; init; }
+    public int Page { get; init; }
+    public int PageSize { get; init; }
+    public int TotalPages { get; init; }
+}
+
+public record UserOrdersSummaryResponse
+{
+    public int TotalCount { get; init; }
+    public int Pending { get; init; }
+    public int Delivered { get; init; }
+    public int Cancelled { get; init; }
+}

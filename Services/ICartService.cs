@@ -9,7 +9,7 @@ public interface ICartService
         Guid productId,
         int quantity,
         string? selectedColor = null,
-        int? selectedSize = null,
+        string? selectedSize = null,
         string? customNumber = null,
         string? writingColor = null);
     Task<bool> RemoveFromCartAsync(Guid userId, Guid itemId);

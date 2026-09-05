@@ -33,9 +33,16 @@ public interface IProductService
         int availableQuantity,
         string? sku = null,
         List<string>? colors = null,
-        List<int>? sizes = null,
+        List<string>? sizes = null,
         Dictionary<string, string>? colorImages = null,
-        string? customizationType = null);
+        string? customizationType = null,
+        decimal colorSurcharge = 0,
+        List<string>? noSurchargeColors = null,
+        string? customizationPolicy = null,
+        string? imageObjectPosition = null,
+        bool isNewArrival = false,
+        bool isBestSeller = false,
+        bool isFeatured = false);
     
     Task<Product?> UpdateProductAsync(
         Guid id,
@@ -48,9 +55,16 @@ public interface IProductService
         string? sku = null,
         bool? isActive = null,
         List<string>? colors = null,
-        List<int>? sizes = null,
+        List<string>? sizes = null,
         Dictionary<string, string>? colorImages = null,
-        string? customizationType = null);
+        string? customizationType = null,
+        decimal? colorSurcharge = null,
+        List<string>? noSurchargeColors = null,
+        string? customizationPolicy = null,
+        string? imageObjectPosition = null,
+        bool? isNewArrival = null,
+        bool? isBestSeller = null,
+        bool? isFeatured = null);
     
     Task<bool> DeleteProductAsync(Guid id);
     

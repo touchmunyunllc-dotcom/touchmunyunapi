@@ -10,7 +10,7 @@ public class OrderItem
     public int Quantity { get; set; }
     public decimal Price { get; set; }
     public string? SelectedColor { get; set; }
-    public int? SelectedSize { get; set; }
+    public string? SelectedSize { get; set; }
     public string? CustomNumber { get; set; }
     public string? WritingColor { get; set; }
 }

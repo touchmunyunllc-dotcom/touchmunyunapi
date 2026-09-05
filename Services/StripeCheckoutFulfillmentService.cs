@@ -17,6 +17,7 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
     private readonly IAdminNotificationService _adminNotificationService;
     private readonly IStripeService _stripeService;
     private readonly ILogger<StripeCheckoutFulfillmentService> _logger;
+    private readonly IExceptionLogService _exceptionLogService;
     private const int MaxQuantityPerProduct = 10;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -31,7 +32,8 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
         IOrderCodeService orderCodeService,
         IAdminNotificationService adminNotificationService,
         IStripeService stripeService,
-        ILogger<StripeCheckoutFulfillmentService> logger)
+        ILogger<StripeCheckoutFulfillmentService> logger,
+        IExceptionLogService exceptionLogService)
     {
         _connection = connection;
         _cartService = cartService;
@@ -39,6 +41,7 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
         _adminNotificationService = adminNotificationService;
         _stripeService = stripeService;
         _logger = logger;
+        _exceptionLogService = exceptionLogService;
     }
 
     public async Task SavePendingCheckoutAsync(string paymentIntentId, StripeCheckoutPendingPayload payload)
@@ -274,6 +277,12 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
             _logger.LogError(ex,
                 "Stock/catalog failure fulfilling Stripe PI {Pi} for user {UserId} — payment succeeded; manual reconciliation may be required",
                 paymentIntentId, userId);
+            await _exceptionLogService.LogImportantAsync(
+                ex,
+                "StripeCheckoutFulfillmentService.FulfillRegistered",
+                severity: "Critical",
+                additionalData: new { paymentIntentId, userId, orderCode },
+                forcePersist: true);
             await _adminNotificationService.NotifyFailedPaymentAsync(
                 orderCode,
                 paymentIntentId,
@@ -285,6 +294,11 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
         {
             transaction.Rollback();
             _logger.LogError(ex, "Failed to fulfill registered Stripe checkout for PI {Pi}", paymentIntentId);
+            await _exceptionLogService.LogImportantAsync(
+                ex,
+                "StripeCheckoutFulfillmentService.FulfillRegistered",
+                severity: "Critical",
+                additionalData: new { paymentIntentId, userId });
             throw;
         }
 
@@ -414,6 +428,12 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
             _logger.LogError(ex,
                 "Stock failure fulfilling guest Stripe PI {Pi} — payment succeeded; manual reconciliation may be required",
                 paymentIntentId);
+            await _exceptionLogService.LogImportantAsync(
+                ex,
+                "StripeCheckoutFulfillmentService.FulfillGuest",
+                severity: "Critical",
+                additionalData: new { paymentIntentId, orderCode, guestEmail = payload.GuestEmail },
+                forcePersist: true);
             await _adminNotificationService.NotifyFailedPaymentAsync(
                 orderCode,
                 paymentIntentId,
@@ -421,9 +441,14 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
                 ex.Message);
             return new FulfillmentResult(false, false, null, FulfillmentFailureKind.StockOrCatalogError);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             transaction.Rollback();
+            await _exceptionLogService.LogImportantAsync(
+                ex,
+                "StripeCheckoutFulfillmentService.FulfillGuest",
+                severity: "Critical",
+                additionalData: new { paymentIntentId, guestEmail = payload.GuestEmail });
             throw;
         }
 

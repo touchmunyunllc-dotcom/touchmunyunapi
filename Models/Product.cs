@@ -17,7 +17,7 @@ public class Product
     public string Category { get; set; } = string.Empty;
     public string? Sku { get; set; }
     public List<string> Colors { get; set; } = new();
-    public List<int> Sizes { get; set; } = new();
+    public List<string> Sizes { get; set; } = new();
     /// <summary>Map of color name → image URL (e.g. Black → https://...).</summary>
     public Dictionary<string, string> ColorImages { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Dapper maps JSONB text here; ignored in API JSON.</summary>
@@ -25,7 +25,18 @@ public class Product
     public string? ColorImagesJson { get; set; }
     /// <summary>null or "wristband".</summary>
     public string? CustomizationType { get; set; }
+    /// <summary>Added to unit price when band color is not in NoSurchargeColors (wristbands).</summary>
+    public decimal ColorSurcharge { get; set; }
+    /// <summary>Band colors that do not incur ColorSurcharge (admin-configured).</summary>
+    public List<string> NoSurchargeColors { get; set; } = new();
+    /// <summary>Storefront copy for customization pricing, lead times, etc.</summary>
+    public string? CustomizationPolicy { get; set; }
+    /// <summary>CSS object-position for product image on PDP (e.g. center 88%).</summary>
+    public string? ImageObjectPosition { get; set; }
     public bool IsActive { get; set; } = true;
+    public bool IsNewArrival { get; set; }
+    public bool IsBestSeller { get; set; }
+    public bool IsFeatured { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 

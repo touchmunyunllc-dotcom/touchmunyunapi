@@ -10,10 +10,18 @@ public record CreateProductRequest(
     string ImageUrl,
     string Category,
     int Stock,
+    List<string>? Images = null,
     List<string>? Colors = null,
-    List<int>? Sizes = null,
+    List<string>? Sizes = null,
     Dictionary<string, string>? ColorImages = null,
-    string? CustomizationType = null);
+    string? CustomizationType = null,
+    decimal ColorSurcharge = 0,
+    List<string>? NoSurchargeColors = null,
+    string? CustomizationPolicy = null,
+    string? ImageObjectPosition = null,
+    bool IsNewArrival = false,
+    bool IsBestSeller = false,
+    bool IsFeatured = false);
 
 public record UpdateProductRequest(
     string? Name,
@@ -23,11 +31,19 @@ public record UpdateProductRequest(
     string? ImageUrl,
     string? Category,
     int? Stock,
+    List<string>? Images = null,
     List<string>? Colors = null,
-    List<int>? Sizes = null,
+    List<string>? Sizes = null,
     Dictionary<string, string>? ColorImages = null,
     string? CustomizationType = null,
-    bool ClearSalePrice = false);
+    decimal? ColorSurcharge = null,
+    List<string>? NoSurchargeColors = null,
+    string? CustomizationPolicy = null,
+    string? ImageObjectPosition = null,
+    bool ClearSalePrice = false,
+    bool? IsNewArrival = null,
+    bool? IsBestSeller = null,
+    bool? IsFeatured = null);
 
 public record BulkPriceUpdateRequest(
     List<Guid> ProductIds,

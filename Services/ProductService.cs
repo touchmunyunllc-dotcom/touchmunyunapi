@@ -27,7 +27,14 @@ public class ProductService : IProductService
         sizes AS Sizes,
         COALESCE(color_images::text, '{}') AS ColorImagesJson,
         customization_type AS CustomizationType,
+        color_surcharge AS ColorSurcharge,
+        no_surcharge_colors AS NoSurchargeColors,
+        customization_policy AS CustomizationPolicy,
+        image_object_position AS ImageObjectPosition,
         is_active AS IsActive,
+        is_new_arrival AS IsNewArrival,
+        is_best_seller AS IsBestSeller,
+        is_featured AS IsFeatured,
         created_at AS CreatedAt,
         updated_at AS UpdatedAt";
 
@@ -172,7 +179,7 @@ public class ProductService : IProductService
         var sql = $@"SELECT {PRODUCT_SELECT_COLUMNS} 
                      FROM products 
                      WHERE is_active = TRUE 
-                     ORDER BY created_at DESC 
+                     ORDER BY is_new_arrival DESC, created_at DESC 
                      LIMIT @Limit";
         
         var products = (await _connection.QueryAsync<Product>(sql, new { Limit = limit })).ToList();
@@ -207,7 +214,7 @@ public class ProductService : IProductService
                          GROUP BY oi.product_id
                      ) sales ON p.id = sales.product_id
                      WHERE p.is_active = TRUE
-                     ORDER BY COALESCE(sales.total_sold, 0) DESC, p.created_at DESC
+                     ORDER BY p.is_best_seller DESC, COALESCE(sales.total_sold, 0) DESC, p.created_at DESC
                      LIMIT @Limit";
         
         var products = (await _connection.QueryAsync<Product>(sql, new { Limit = limit })).ToList();
@@ -251,9 +258,16 @@ public class ProductService : IProductService
         int availableQuantity,
         string? sku = null,
         List<string>? colors = null,
-        List<int>? sizes = null,
+        List<string>? sizes = null,
         Dictionary<string, string>? colorImages = null,
-        string? customizationType = null)
+        string? customizationType = null,
+        decimal colorSurcharge = 0,
+        List<string>? noSurchargeColors = null,
+        string? customizationPolicy = null,
+        string? imageObjectPosition = null,
+        bool isNewArrival = false,
+        bool isBestSeller = false,
+        bool isFeatured = false)
     {
         var productId = Guid.NewGuid();
         var colorImagesJson = Product.SerializeColorImages(colorImages);
@@ -268,18 +282,25 @@ public class ProductService : IProductService
             AvailableQuantity = availableQuantity,
             Sku = sku,
             Colors = colors ?? new List<string>(),
-            Sizes = sizes ?? new List<int>(),
+            Sizes = sizes ?? new List<string>(),
             ColorImagesJson = colorImagesJson,
             CustomizationType = string.IsNullOrWhiteSpace(customizationType) ? null : customizationType.Trim().ToLowerInvariant(),
+            ColorSurcharge = colorSurcharge,
+            NoSurchargeColors = noSurchargeColors ?? new List<string>(),
+            CustomizationPolicy = string.IsNullOrWhiteSpace(customizationPolicy) ? null : customizationPolicy.Trim(),
+            ImageObjectPosition = string.IsNullOrWhiteSpace(imageObjectPosition) ? null : imageObjectPosition.Trim(),
             IsActive = true,
+            IsNewArrival = isNewArrival,
+            IsBestSeller = isBestSeller,
+            IsFeatured = isFeatured,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };
         product.HydrateColorImages();
 
         await _connection.ExecuteAsync(@"
-            INSERT INTO products (id, name, description, price, sale_price, images, category, available_quantity, sku, colors, sizes, color_images, customization_type, is_active, created_at, updated_at)
-            VALUES (@Id, @Name, @Description, @Price, @SalePrice, @Images, @Category, @AvailableQuantity, @Sku, @Colors, @Sizes, CAST(@ColorImagesJson AS jsonb), @CustomizationType, @IsActive, @CreatedAt, @UpdatedAt)",
+            INSERT INTO products (id, name, description, price, sale_price, images, category, available_quantity, sku, colors, sizes, color_images, customization_type, color_surcharge, no_surcharge_colors, customization_policy, image_object_position, is_active, is_new_arrival, is_best_seller, is_featured, created_at, updated_at)
+            VALUES (@Id, @Name, @Description, @Price, @SalePrice, @Images, @Category, @AvailableQuantity, @Sku, @Colors, @Sizes, CAST(@ColorImagesJson AS jsonb), @CustomizationType, @ColorSurcharge, @NoSurchargeColors, @CustomizationPolicy, @ImageObjectPosition, @IsActive, @IsNewArrival, @IsBestSeller, @IsFeatured, @CreatedAt, @UpdatedAt)",
             new
             {
                 product.Id,
@@ -295,7 +316,14 @@ public class ProductService : IProductService
                 Sizes = product.Sizes.ToArray(),
                 ColorImagesJson = colorImagesJson,
                 product.CustomizationType,
+                product.ColorSurcharge,
+                NoSurchargeColors = product.NoSurchargeColors.ToArray(),
+                product.CustomizationPolicy,
+                product.ImageObjectPosition,
                 product.IsActive,
+                product.IsNewArrival,
+                product.IsBestSeller,
+                product.IsFeatured,
                 product.CreatedAt,
                 product.UpdatedAt
             });
@@ -317,9 +345,16 @@ public class ProductService : IProductService
         string? sku = null,
         bool? isActive = null,
         List<string>? colors = null,
-        List<int>? sizes = null,
+        List<string>? sizes = null,
         Dictionary<string, string>? colorImages = null,
-        string? customizationType = null)
+        string? customizationType = null,
+        decimal? colorSurcharge = null,
+        List<string>? noSurchargeColors = null,
+        string? customizationPolicy = null,
+        string? imageObjectPosition = null,
+        bool? isNewArrival = null,
+        bool? isBestSeller = null,
+        bool? isFeatured = null)
     {
         var existingProduct = await GetProductByIdAsync(id);
         if (existingProduct == null)
@@ -404,6 +439,52 @@ public class ProductService : IProductService
             parameters.Add(
                 "CustomizationType",
                 string.IsNullOrWhiteSpace(customizationType) ? null : customizationType.Trim().ToLowerInvariant());
+        }
+
+        if (colorSurcharge.HasValue)
+        {
+            updateFields.Add("color_surcharge = @ColorSurcharge");
+            parameters.Add("ColorSurcharge", colorSurcharge.Value);
+        }
+
+        if (noSurchargeColors != null)
+        {
+            updateFields.Add("no_surcharge_colors = @NoSurchargeColors");
+            parameters.Add("NoSurchargeColors", noSurchargeColors.ToArray());
+        }
+
+        if (customizationPolicy != null)
+        {
+            updateFields.Add("customization_policy = @CustomizationPolicy");
+            parameters.Add(
+                "CustomizationPolicy",
+                string.IsNullOrWhiteSpace(customizationPolicy) ? null : customizationPolicy.Trim());
+        }
+
+        if (imageObjectPosition != null)
+        {
+            updateFields.Add("image_object_position = @ImageObjectPosition");
+            parameters.Add(
+                "ImageObjectPosition",
+                string.IsNullOrWhiteSpace(imageObjectPosition) ? null : imageObjectPosition.Trim());
+        }
+
+        if (isNewArrival.HasValue)
+        {
+            updateFields.Add("is_new_arrival = @IsNewArrival");
+            parameters.Add("IsNewArrival", isNewArrival.Value);
+        }
+
+        if (isBestSeller.HasValue)
+        {
+            updateFields.Add("is_best_seller = @IsBestSeller");
+            parameters.Add("IsBestSeller", isBestSeller.Value);
+        }
+
+        if (isFeatured.HasValue)
+        {
+            updateFields.Add("is_featured = @IsFeatured");
+            parameters.Add("IsFeatured", isFeatured.Value);
         }
 
         updateFields.Add("updated_at = @UpdatedAt");

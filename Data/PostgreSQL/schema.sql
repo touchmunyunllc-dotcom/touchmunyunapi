@@ -65,9 +65,13 @@ CREATE TABLE IF NOT EXISTS products (
     category VARCHAR(100),
     sku VARCHAR(100) UNIQUE,
     colors TEXT[] DEFAULT ARRAY[]::TEXT[],
-    sizes INTEGER[] DEFAULT ARRAY[]::INTEGER[],
+    sizes TEXT[] DEFAULT ARRAY[]::TEXT[],
     color_images JSONB NOT NULL DEFAULT '{}'::jsonb,
     customization_type VARCHAR(50),
+    color_surcharge DECIMAL(18, 2) NOT NULL DEFAULT 0,
+    no_surcharge_colors TEXT[] DEFAULT ARRAY[]::TEXT[],
+    customization_policy TEXT,
+    image_object_position VARCHAR(50),
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -93,7 +97,7 @@ CREATE TABLE IF NOT EXISTS cart_items (
     product_id UUID NOT NULL,
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     selected_color VARCHAR(50),
-    selected_size INTEGER,
+    selected_size VARCHAR(20),
     custom_number VARCHAR(20),
     writing_color VARCHAR(50),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -173,7 +177,7 @@ CREATE TABLE IF NOT EXISTS order_items (
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     price DECIMAL(18, 2) NOT NULL CHECK (price >= 0),
     selected_color VARCHAR(50),
-    selected_size INTEGER,
+    selected_size VARCHAR(20),
     custom_number VARCHAR(20),
     writing_color VARCHAR(50),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -322,4 +326,29 @@ COMMENT ON TABLE order_items IS 'Stores individual items within orders';
 COMMENT ON TABLE payments IS 'Stores payment transaction records';
 COMMENT ON TABLE slideshow IS 'Stores homepage hero slider images and content';
 COMMENT ON TABLE contact_messages IS 'Stores contact form submissions';
+COMMENT ON TABLE exception_logs IS 'Stores important application errors for troubleshooting';
+
+-- ============================================
+-- EXCEPTION LOGS TABLE
+-- ============================================
+CREATE TABLE IF NOT EXISTS exception_logs (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    severity VARCHAR(20) NOT NULL DEFAULT 'Error',
+    exception_type VARCHAR(500) NOT NULL,
+    message TEXT NOT NULL,
+    stack_trace TEXT,
+    source VARCHAR(200) NOT NULL,
+    http_method VARCHAR(10),
+    request_path VARCHAR(2000),
+    status_code INTEGER,
+    correlation_id VARCHAR(64),
+    user_id UUID,
+    client_ip VARCHAR(45),
+    additional_data JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_exception_logs_created_at ON exception_logs (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_exception_logs_severity ON exception_logs (severity);
+CREATE INDEX IF NOT EXISTS idx_exception_logs_correlation_id ON exception_logs (correlation_id) WHERE correlation_id IS NOT NULL;
 

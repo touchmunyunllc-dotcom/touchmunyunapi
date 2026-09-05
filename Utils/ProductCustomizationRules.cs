@@ -5,16 +5,12 @@ namespace ECommerce.Utils;
 
 public static class ProductCustomizationRules
 {
-    public const int WristbandNumberMaxLength = 3;
-    public static readonly string[] WritingColors = { "Black", "White", "Red" };
+    public const int WristbandNumberMaxLength = 2;
     private static readonly Regex DigitsOnly = new("^[0-9]+$", RegexOptions.Compiled);
 
     public static void ValidateForCart(Product product, string? selectedColor, string? customNumber, string? writingColor)
     {
-        var isWristband = string.Equals(
-            product.CustomizationType,
-            Product.CustomizationWristband,
-            StringComparison.OrdinalIgnoreCase);
+        var isWristband = ProductPricingRules.IsWristband(product);
 
         if (!isWristband)
         {
@@ -24,6 +20,12 @@ public static class ProductCustomizationRules
         if (string.IsNullOrWhiteSpace(selectedColor))
         {
             throw new CartValidationException("Please select a band color for this wristband.");
+        }
+
+        if (product.Colors.Count > 0
+            && !product.Colors.Any(c => c.Equals(selectedColor.Trim(), StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new CartValidationException($"Band color '{selectedColor}' is not available for this wristband.");
         }
 
         if (string.IsNullOrWhiteSpace(customNumber))
@@ -38,10 +40,10 @@ public static class ProductCustomizationRules
                 $"Wristband number must be digits only (max {WristbandNumberMaxLength}).");
         }
 
-        if (string.IsNullOrWhiteSpace(writingColor)
-            || !WritingColors.Any(c => c.Equals(writingColor.Trim(), StringComparison.OrdinalIgnoreCase)))
+        var normalizedWriting = NormalizeWritingColor(product, writingColor);
+        if (string.IsNullOrWhiteSpace(normalizedWriting))
         {
-            throw new CartValidationException("Please select a writing color (Black, White, or Red).");
+            throw new CartValidationException("Please select a writing color for this wristband.");
         }
     }
 
@@ -55,14 +57,21 @@ public static class ProductCustomizationRules
         return customNumber.Trim();
     }
 
-    public static string? NormalizeWritingColor(string? writingColor)
+    public static string? NormalizeWritingColor(Product product, string? writingColor)
     {
         if (string.IsNullOrWhiteSpace(writingColor))
         {
             return null;
         }
 
-        return WritingColors.FirstOrDefault(c =>
+        var allowed = product.Colors;
+
+        if (allowed.Count == 0)
+        {
+            return writingColor.Trim();
+        }
+
+        return allowed.FirstOrDefault(c =>
             c.Equals(writingColor.Trim(), StringComparison.OrdinalIgnoreCase));
     }
 }
