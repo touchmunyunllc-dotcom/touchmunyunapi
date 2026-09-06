@@ -21,7 +21,7 @@ public static class ProductPricingRules
 
     public static decimal GetColorSurcharge(Product product, string? selectedColor)
     {
-        if (!IsWristband(product) || product.ColorSurcharge <= 0)
+        if (product.ColorSurcharge <= 0 || string.IsNullOrWhiteSpace(selectedColor))
         {
             return 0m;
         }

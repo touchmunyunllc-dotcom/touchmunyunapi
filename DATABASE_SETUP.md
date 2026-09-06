@@ -136,3 +136,7 @@ The seed data includes:
 - The database uses UUID primary keys
 - All timestamps use `TIMESTAMP WITH TIME ZONE`
 
+## Related guides
+
+- **[Domain migration (Shopify → touchmunyun.com)](../docs/DOMAIN_MIGRATION_SHOPIFY_TO_APP.md)** — Point `touchmunyun.com` from Shopify to the Vercel app; env vars and go-live checklist
+- **[Deployment guide](../docs/DEPLOYMENT_GUIDE.md)** — Azure infrastructure and CI/CD
