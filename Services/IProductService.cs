@@ -8,7 +8,9 @@ public interface IProductService
         string? category = null,
         string? search = null,
         decimal? minPrice = null,
-        decimal? maxPrice = null);
+        decimal? maxPrice = null,
+        string? statusFilter = null,
+        bool activeOnly = true);
     
     Task<(List<Product> Products, int TotalCount)> GetAllProductsPaginatedAsync(
         string? category = null,
@@ -16,13 +18,15 @@ public interface IProductService
         decimal? minPrice = null,
         decimal? maxPrice = null,
         int page = 1,
-        int pageSize = 10);
+        int pageSize = 10,
+        string? statusFilter = null,
+        bool activeOnly = true);
     
     Task<List<Product>> GetNewArrivalsAsync(int limit = 50);
     
     Task<List<Product>> GetBestSellersAsync(int limit = 50);
     
-    Task<Product?> GetProductByIdAsync(Guid id);
+    Task<Product?> GetProductByIdAsync(Guid id, bool includeInactive = false);
     
     Task<Product> CreateProductAsync(
         string name,
@@ -42,7 +46,8 @@ public interface IProductService
         string? imageObjectPosition = null,
         bool isNewArrival = false,
         bool isBestSeller = false,
-        bool isFeatured = false);
+        bool isFeatured = false,
+        bool isActive = true);
     
     Task<Product?> UpdateProductAsync(
         Guid id,

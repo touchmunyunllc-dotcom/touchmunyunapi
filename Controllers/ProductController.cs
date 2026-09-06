@@ -3,6 +3,7 @@ using ECommerce.Models;
 using ECommerce.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 
 namespace ECommerce.Controllers;
 
@@ -26,13 +27,16 @@ public class ProductsController : ControllerBase
         [FromQuery] decimal? minPrice = null,
         [FromQuery] decimal? maxPrice = null,
         [FromQuery] int? page = null,
-        [FromQuery] int? pageSize = null)
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? status = null)
     {
+        var activeOnly = !User.IsInRole("Admin");
+
         // If pagination parameters are provided, return paginated response
         if (page.HasValue && pageSize.HasValue)
         {
             var (products, totalCount) = await _productService.GetAllProductsPaginatedAsync(
-                category, search, minPrice, maxPrice, page.Value, pageSize.Value);
+                category, search, minPrice, maxPrice, page.Value, pageSize.Value, status, activeOnly);
             return Ok(new ProductsResponse
             {
                 Products = products,
@@ -44,7 +48,8 @@ public class ProductsController : ControllerBase
         }
 
         // Otherwise, return all products (backward compatibility)
-        var allProducts = await _productService.GetAllProductsAsync(category, search, minPrice, maxPrice);
+        var allProducts = await _productService.GetAllProductsAsync(
+            category, search, minPrice, maxPrice, status, activeOnly);
         return Ok(allProducts);
     }
 
@@ -69,7 +74,8 @@ public class ProductsController : ControllerBase
     [ProducesResponseType(404)]
     public async Task<IActionResult> GetProductById(Guid id)
     {
-        var product = await _productService.GetProductByIdAsync(id);
+        var includeInactive = User.IsInRole("Admin");
+        var product = await _productService.GetProductByIdAsync(id, includeInactive);
         if (product == null)
         {
             return NotFound();
@@ -107,12 +113,13 @@ public class ProductsController : ControllerBase
             imageObjectPosition: request.ImageObjectPosition,
             isNewArrival: request.IsNewArrival,
             isBestSeller: request.IsBestSeller,
-            isFeatured: request.IsFeatured);
+            isFeatured: request.IsFeatured,
+            isActive: request.IsActive);
 
         if (request.SalePrice.HasValue)
         {
             await _productService.UpdateSalePriceAsync(product.Id, request.SalePrice);
-            product = await _productService.GetProductByIdAsync(product.Id) ?? product;
+            product = await _productService.GetProductByIdAsync(product.Id, includeInactive: true) ?? product;
         }
 
         return CreatedAtAction(nameof(GetProductById), new { id = product.Id }, product);
@@ -152,7 +159,8 @@ public class ProductsController : ControllerBase
             imageObjectPosition: request.ImageObjectPosition,
             isNewArrival: request.IsNewArrival,
             isBestSeller: request.IsBestSeller,
-            isFeatured: request.IsFeatured);
+            isFeatured: request.IsFeatured,
+            isActive: request.IsActive);
 
         if (updatedProduct == null)
         {
@@ -165,7 +173,7 @@ public class ProductsController : ControllerBase
             await _productService.UpdateSalePriceAsync(
                 id,
                 request.ClearSalePrice ? null : request.SalePrice);
-            updatedProduct = await _productService.GetProductByIdAsync(id);
+            updatedProduct = await _productService.GetProductByIdAsync(id, includeInactive: true);
         }
 
         return Ok(updatedProduct);
@@ -234,7 +242,8 @@ public class ProductsController : ControllerBase
             return BadRequest(new { message = "Sale price must be non-negative" });
         }
 
-        var product = await _productService.GetProductByIdAsync(id);
+        var includeInactive = User.IsInRole("Admin");
+        var product = await _productService.GetProductByIdAsync(id, includeInactive);
         if (product == null)
         {
             return NotFound();
@@ -255,7 +264,7 @@ public class ProductsController : ControllerBase
         if (request.SalePrice.HasValue || request.ClearSalePrice)
         {
             await _productService.UpdateSalePriceAsync(id, request.SalePrice);
-            updatedProduct = await _productService.GetProductByIdAsync(id);
+            updatedProduct = await _productService.GetProductByIdAsync(id, includeInactive: true);
         }
 
         return Ok(updatedProduct);

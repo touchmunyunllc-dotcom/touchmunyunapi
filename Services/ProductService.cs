@@ -52,6 +52,21 @@ public class ProductService : IProductService
         return product;
     }
 
+    private static string BuildActiveStatusClause(string? statusFilter, bool activeOnly)
+    {
+        if (activeOnly)
+        {
+            return " AND is_active = TRUE";
+        }
+
+        return statusFilter?.Trim().ToLowerInvariant() switch
+        {
+            "inactive" => " AND is_active = FALSE",
+            "active" => " AND is_active = TRUE",
+            _ => string.Empty,
+        };
+    }
+
     private readonly IDbConnection _connection;
     private readonly IRedisService _redisService;
 
@@ -65,10 +80,16 @@ public class ProductService : IProductService
         string? category = null,
         string? search = null,
         decimal? minPrice = null,
-        decimal? maxPrice = null)
+        decimal? maxPrice = null,
+        string? statusFilter = null,
+        bool activeOnly = true)
     {
         // If no filters, try to get from cache
-        if (string.IsNullOrEmpty(category) && string.IsNullOrEmpty(search) && !minPrice.HasValue && !maxPrice.HasValue)
+        if (activeOnly
+            && string.IsNullOrEmpty(category)
+            && string.IsNullOrEmpty(search)
+            && !minPrice.HasValue
+            && !maxPrice.HasValue)
         {
             var version = await GetProductsCacheVersionAsync();
             var cacheKey = $"{PRODUCTS_CACHE_KEY}:{version}";
@@ -81,7 +102,7 @@ public class ProductService : IProductService
         }
 
         // Build SQL query with filters - using explicit column mapping
-        var sql = $"SELECT {PRODUCT_SELECT_COLUMNS} FROM products WHERE is_active = TRUE";
+        var sql = $"SELECT {PRODUCT_SELECT_COLUMNS} FROM products WHERE 1=1{BuildActiveStatusClause(statusFilter, activeOnly)}";
         var parameters = new DynamicParameters();
 
         if (!string.IsNullOrEmpty(category))
@@ -113,7 +134,11 @@ public class ProductService : IProductService
         HydrateProducts(productList);
 
         // Cache only if no filters (all products)
-        if (string.IsNullOrEmpty(category) && string.IsNullOrEmpty(search) && !minPrice.HasValue && !maxPrice.HasValue)
+        if (activeOnly
+            && string.IsNullOrEmpty(category)
+            && string.IsNullOrEmpty(search)
+            && !minPrice.HasValue
+            && !maxPrice.HasValue)
         {
             var version = await GetProductsCacheVersionAsync();
             var cacheKey = $"{PRODUCTS_CACHE_KEY}:{version}";
@@ -129,10 +154,12 @@ public class ProductService : IProductService
         decimal? minPrice = null,
         decimal? maxPrice = null,
         int page = 1,
-        int pageSize = 10)
+        int pageSize = 10,
+        string? statusFilter = null,
+        bool activeOnly = true)
     {
-        // Build SQL query with filters
-        var sql = $"SELECT {PRODUCT_SELECT_COLUMNS} FROM products WHERE is_active = TRUE";
+        var statusClause = BuildActiveStatusClause(statusFilter, activeOnly);
+        var sql = $"SELECT {PRODUCT_SELECT_COLUMNS} FROM products WHERE 1=1{statusClause}";
         var parameters = new DynamicParameters();
 
         if (!string.IsNullOrEmpty(category))
@@ -222,28 +249,35 @@ public class ProductService : IProductService
         return products;
     }
 
-    public async Task<Product?> GetProductByIdAsync(Guid id)
+    public async Task<Product?> GetProductByIdAsync(Guid id, bool includeInactive = false)
     {
-        var version = await GetProductsCacheVersionAsync();
-        var cacheKey = $"{PRODUCT_CACHE_KEY_PREFIX}{id}:{version}";
-        
-        // Try to get from cache
-        var cachedProduct = await _redisService.GetAsync<Product>(cacheKey);
-        if (cachedProduct != null)
+        if (!includeInactive)
         {
-            return HydrateProduct(cachedProduct);
+            var version = await GetProductsCacheVersionAsync();
+            var cacheKey = $"{PRODUCT_CACHE_KEY_PREFIX}{id}:{version}";
+            
+            // Try to get from cache
+            var cachedProduct = await _redisService.GetAsync<Product>(cacheKey);
+            if (cachedProduct != null)
+            {
+                return HydrateProduct(cachedProduct);
+            }
         }
 
-        // Get from database - using explicit column mapping
+        var activeClause = includeInactive ? string.Empty : " AND is_active = TRUE";
         var product = await _connection.QueryFirstOrDefaultAsync<Product>(
-            $"SELECT {PRODUCT_SELECT_COLUMNS} FROM products WHERE id = @Id AND is_active = TRUE",
+            $"SELECT {PRODUCT_SELECT_COLUMNS} FROM products WHERE id = @Id{activeClause}",
             new { Id = id });
 
         if (product != null)
         {
             HydrateProduct(product);
-            // Cache the product
-            await _redisService.SetAsync(cacheKey, product, CACHE_EXPIRY);
+            if (!includeInactive)
+            {
+                var version = await GetProductsCacheVersionAsync();
+                var cacheKey = $"{PRODUCT_CACHE_KEY_PREFIX}{id}:{version}";
+                await _redisService.SetAsync(cacheKey, product, CACHE_EXPIRY);
+            }
         }
 
         return product;
@@ -267,7 +301,8 @@ public class ProductService : IProductService
         string? imageObjectPosition = null,
         bool isNewArrival = false,
         bool isBestSeller = false,
-        bool isFeatured = false)
+        bool isFeatured = false,
+        bool isActive = true)
     {
         var productId = Guid.NewGuid();
         var colorImagesJson = Product.SerializeColorImages(colorImages);
@@ -289,7 +324,7 @@ public class ProductService : IProductService
             NoSurchargeColors = noSurchargeColors ?? new List<string>(),
             CustomizationPolicy = string.IsNullOrWhiteSpace(customizationPolicy) ? null : customizationPolicy.Trim(),
             ImageObjectPosition = string.IsNullOrWhiteSpace(imageObjectPosition) ? null : imageObjectPosition.Trim(),
-            IsActive = true,
+            IsActive = isActive,
             IsNewArrival = isNewArrival,
             IsBestSeller = isBestSeller,
             IsFeatured = isFeatured,
@@ -356,11 +391,14 @@ public class ProductService : IProductService
         bool? isBestSeller = null,
         bool? isFeatured = null)
     {
-        var existingProduct = await GetProductByIdAsync(id);
+        var existingProduct = await _connection.QueryFirstOrDefaultAsync<Product>(
+            $"SELECT {PRODUCT_SELECT_COLUMNS} FROM products WHERE id = @Id",
+            new { Id = id });
         if (existingProduct == null)
         {
             return null;
         }
+        HydrateProduct(existingProduct);
 
         var updateFields = new List<string>();
         var parameters = new DynamicParameters();
@@ -505,8 +543,7 @@ public class ProductService : IProductService
 
     public async Task<bool> DeleteProductAsync(Guid id)
     {
-        var product = await GetProductByIdAsync(id);
-        if (product == null)
+        if (!await ProductExistsAsync(id))
         {
             return false;
         }

@@ -29,12 +29,16 @@ public class SlideshowController : ControllerBase
     [Authorize(Roles = "Admin")]
     [ProducesResponseType(typeof(List<Slide>), 200)]
     [ProducesResponseType(typeof(SlidesResponse), 200)]
-    public async Task<IActionResult> GetAllSlides([FromQuery] int? page = null, [FromQuery] int? pageSize = null)
+    public async Task<IActionResult> GetAllSlides(
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? status = null)
     {
         // If pagination parameters are provided, return paginated response
         if (page.HasValue && pageSize.HasValue)
         {
-            var (slides, totalCount) = await _slideshowService.GetAllSlidesPaginatedAsync(page.Value, pageSize.Value);
+            var (slides, totalCount) = await _slideshowService.GetAllSlidesPaginatedAsync(
+                page.Value, pageSize.Value, status);
             return Ok(new SlidesResponse
             {
                 Slides = slides,

@@ -32,19 +32,25 @@ public class CouponsController : ControllerBase
     [ProducesResponseType(typeof(CouponsResponse), 200)]
     public async Task<IActionResult> GetAllCoupons(
         [FromQuery] int? page = null,
-        [FromQuery] int? pageSize = null)
+        [FromQuery] int? pageSize = null,
+        [FromQuery] string? status = null)
     {
         // If pagination parameters are provided, return paginated response
         if (page.HasValue && pageSize.HasValue)
         {
-            // Get total count
-            var totalCount = await _connection.QueryFirstOrDefaultAsync<int>(
-                "SELECT COUNT(*) FROM coupons");
+            var statusClause = status?.Trim().ToLowerInvariant() switch
+            {
+                "inactive" => " WHERE is_active = FALSE",
+                "active" => " WHERE is_active = TRUE",
+                _ => string.Empty,
+            };
 
-            // Get paginated coupons
+            var totalCount = await _connection.QueryFirstOrDefaultAsync<int>(
+                $"SELECT COUNT(*) FROM coupons{statusClause}");
+
             var offset = (page.Value - 1) * pageSize.Value;
             var paginatedCoupons = await _connection.QueryAsync<Coupon>(
-                @"SELECT 
+                $@"SELECT 
                     id AS Id,
                     code AS Code,
                     discount_type AS DiscountType,
@@ -56,7 +62,7 @@ public class CouponsController : ControllerBase
                     min_purchase_amount AS MinPurchaseAmount,
                     max_discount_amount AS MaxDiscountAmount,
                     created_at AS CreatedAt
-                  FROM coupons 
+                  FROM coupons{statusClause}
                   ORDER BY created_at DESC
                   LIMIT @PageSize OFFSET @Offset",
                 new { PageSize = pageSize.Value, Offset = offset });

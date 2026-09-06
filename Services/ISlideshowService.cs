@@ -5,7 +5,10 @@ namespace ECommerce.Services;
 public interface ISlideshowService
 {
     Task<List<Slide>> GetAllSlidesAsync();
-    Task<(List<Slide> Slides, int TotalCount)> GetAllSlidesPaginatedAsync(int page = 1, int pageSize = 10);
+    Task<(List<Slide> Slides, int TotalCount)> GetAllSlidesPaginatedAsync(
+        int page = 1,
+        int pageSize = 10,
+        string? statusFilter = null);
     Task<List<Slide>> GetActiveSlidesAsync();
     Task<Slide?> GetSlideByIdAsync(Guid id);
     Task<Slide> CreateSlideAsync(

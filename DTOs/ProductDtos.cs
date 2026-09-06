@@ -21,7 +21,8 @@ public record CreateProductRequest(
     string? ImageObjectPosition = null,
     bool IsNewArrival = false,
     bool IsBestSeller = false,
-    bool IsFeatured = false);
+    bool IsFeatured = false,
+    bool IsActive = true);
 
 public record UpdateProductRequest(
     string? Name,
@@ -43,7 +44,8 @@ public record UpdateProductRequest(
     bool ClearSalePrice = false,
     bool? IsNewArrival = null,
     bool? IsBestSeller = null,
-    bool? IsFeatured = null);
+    bool? IsFeatured = null,
+    bool? IsActive = null);
 
 public record BulkPriceUpdateRequest(
     List<Guid> ProductIds,

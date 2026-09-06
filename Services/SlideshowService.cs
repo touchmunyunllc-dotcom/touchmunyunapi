@@ -24,20 +24,28 @@ public class SlideshowService : ISlideshowService
         return slides.ToList();
     }
 
-    public async Task<(List<Slide> Slides, int TotalCount)> GetAllSlidesPaginatedAsync(int page = 1, int pageSize = 10)
+    public async Task<(List<Slide> Slides, int TotalCount)> GetAllSlidesPaginatedAsync(
+        int page = 1,
+        int pageSize = 10,
+        string? statusFilter = null)
     {
-        // Get total count
-        var totalCount = await _connection.QueryFirstOrDefaultAsync<int>(
-            "SELECT COUNT(*) FROM slideshow");
+        var statusClause = statusFilter?.Trim().ToLowerInvariant() switch
+        {
+            "inactive" => " WHERE is_active = FALSE",
+            "active" => " WHERE is_active = TRUE",
+            _ => string.Empty,
+        };
 
-        // Get paginated slides
+        var totalCount = await _connection.QueryFirstOrDefaultAsync<int>(
+            $"SELECT COUNT(*) FROM slideshow{statusClause}");
+
         var offset = (page - 1) * pageSize;
         var slides = await _connection.QueryAsync<Slide>(
-            @"SELECT id AS Id, image_url AS ImageUrl, alt AS Alt, title AS Title, 
+            $@"SELECT id AS Id, image_url AS ImageUrl, alt AS Alt, title AS Title, 
                      subtitle AS Subtitle, cta_text AS CtaText, cta_link AS CtaLink, 
                      ""order"" AS ""Order"", is_active AS IsActive, 
                      created_at AS CreatedAt, updated_at AS UpdatedAt 
-              FROM slideshow ORDER BY ""order"" ASC, created_at DESC 
+              FROM slideshow{statusClause} ORDER BY ""order"" ASC, created_at DESC 
               LIMIT @PageSize OFFSET @Offset",
             new { PageSize = pageSize, Offset = offset });
         
