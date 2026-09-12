@@ -283,6 +283,7 @@ builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<ISMSService, SMSService>();
 builder.Services.AddScoped<ICouponService, CouponService>();
 builder.Services.AddScoped<IImageService, ImageService>();
+builder.Services.AddScoped<IStoreSettingsService, StoreSettingsService>();
 builder.Services.AddScoped<ICartService, CartService>();
 builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddScoped<IOrderCodeService, OrderCodeService>();
@@ -409,11 +410,11 @@ app.UseMiddleware<ECommerce.Utils.ErrorHandlingMiddleware>();
 // Correlation ID middleware (adds X-Correlation-Id to all requests)
 app.UseMiddleware<ECommerce.Utils.CorrelationIdMiddleware>();
 
-app.UseHttpsRedirection();
-
-// HSTS in production (OWASP A02 - Cryptographic Failures)
+// Local dev uses http://localhost:59401; redirect would break Next.js /api rewrites (307 → https).
 if (!app.Environment.IsDevelopment())
 {
+    app.UseHttpsRedirection();
+    // HSTS in production (OWASP A02 - Cryptographic Failures)
     app.UseHsts();
 }
 

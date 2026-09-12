@@ -9,8 +9,8 @@ public class CartService : ICartService
 {
     private readonly IDbConnection _connection;
     private readonly ICouponService _couponService;
+    private readonly IStoreSettingsService _storeSettings;
     private readonly ILogger<CartService> _logger;
-    private const decimal TAX_RATE = 0.10m;
 
     private const string PRODUCT_SELECT_COLUMNS = @"
         id AS Id,
@@ -46,10 +46,15 @@ public class CartService : ICartService
         created_at AS CreatedAt,
         updated_at AS UpdatedAt";
 
-    public CartService(IDbConnection connection, ICouponService couponService, ILogger<CartService> logger)
+    public CartService(
+        IDbConnection connection,
+        ICouponService couponService,
+        IStoreSettingsService storeSettings,
+        ILogger<CartService> logger)
     {
         _connection = connection;
         _couponService = couponService;
+        _storeSettings = storeSettings;
         _logger = logger;
     }
 
@@ -271,8 +276,9 @@ public class CartService : ICartService
         return await GetCartAsync(userId, couponCode);
     }
 
-    public Task<decimal> CalculateTaxAsync(decimal subtotal)
+    public async Task<decimal> CalculateTaxAsync(decimal subtotal)
     {
-        return Task.FromResult(subtotal * TAX_RATE);
+        var rate = await _storeSettings.GetSalesTaxRateAsync();
+        return Math.Round(subtotal * rate, 2, MidpointRounding.AwayFromZero);
     }
 }

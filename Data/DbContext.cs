@@ -622,6 +622,16 @@ public class DbContext : IDbContext
                             USING selected_size::text;
                     END IF;
                 END $$;");
+
+            await connection.ExecuteAsync(@"
+                CREATE TABLE IF NOT EXISTS store_settings (
+                    key VARCHAR(100) PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                );
+                INSERT INTO store_settings (key, value)
+                VALUES ('sales_tax_rate', '0.10')
+                ON CONFLICT (key) DO NOTHING;");
         }
         catch (Exception ex)
         {
