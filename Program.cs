@@ -284,6 +284,7 @@ builder.Services.AddScoped<ISMSService, SMSService>();
 builder.Services.AddScoped<ICouponService, CouponService>();
 builder.Services.AddScoped<IImageService, ImageService>();
 builder.Services.AddScoped<IStoreSettingsService, StoreSettingsService>();
+builder.Services.AddScoped<ICountryService, CountryService>();
 builder.Services.AddScoped<ICartService, CartService>();
 builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddScoped<IOrderCodeService, OrderCodeService>();
@@ -309,6 +310,30 @@ builder.Services.AddHostedService<StripeHostedCheckoutCleanupService>();
 
 // Register HttpClient for Email and SMS services
 builder.Services.AddHttpClient();
+builder.Services.AddHttpClient("Nominatim", client =>
+{
+    client.BaseAddress = new Uri("https://nominatim.openstreetmap.org/");
+    client.Timeout = TimeSpan.FromSeconds(8);
+    client.DefaultRequestHeaders.UserAgent.ParseAdd(
+        "TouchMunyun/1.0 (order geocoding; contact: TouchMunyunLLC@gmail.com)");
+});
+builder.Services.Configure<ECommerce.Configuration.GeocodingOptions>(
+    builder.Configuration.GetSection("Geocoding"));
+builder.Services.AddHttpClient("MapboxGeocoding", client =>
+{
+    client.BaseAddress = new Uri("https://api.mapbox.com/");
+    client.Timeout = TimeSpan.FromSeconds(8);
+});
+builder.Services.AddHttpClient("GoogleGeocoding", client =>
+{
+    client.BaseAddress = new Uri("https://maps.googleapis.com/");
+    client.Timeout = TimeSpan.FromSeconds(8);
+});
+builder.Services.AddScoped<MapboxGeocodingService>();
+builder.Services.AddScoped<GoogleGeocodingService>();
+builder.Services.AddScoped<NominatimGeocodingService>();
+builder.Services.AddScoped<IGeocodingService, ChainedGeocodingService>();
+builder.Services.AddScoped<IOrderLocationService, OrderLocationService>();
 
 // Rate Limiting (OWASP A04 - Insecure Design)
 builder.Services.AddRateLimiter(options =>
@@ -434,6 +459,12 @@ using (var scope = app.Services.CreateScope())
     {
         var dbContext = scope.ServiceProvider.GetRequiredService<IDbContext>();
         await dbContext.InitializeDatabaseAsync();
+
+        var countryService = scope.ServiceProvider.GetRequiredService<ICountryService>();
+        await countryService.SeedCountriesIfEmptyAsync();
+
+        var productService = scope.ServiceProvider.GetRequiredService<IProductService>();
+        await productService.BackfillMissingSlugsAsync();
     }
 
     var seedData = builder.Configuration.GetValue("Database:SeedData", app.Environment.IsDevelopment());

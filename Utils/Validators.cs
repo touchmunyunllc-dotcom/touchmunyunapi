@@ -118,15 +118,27 @@ public class CreateAddressRequestValidator : AbstractValidator<CreateAddressRequ
 
         RuleFor(x => x.PostalCode)
             .NotEmpty().WithMessage("Postal code is required")
-            .MaximumLength(20).WithMessage("Postal code must not exceed 20 characters");
+            .MaximumLength(20).WithMessage("Postal code must not exceed 20 characters")
+            .Must((req, postal) => PostalCodeRules.TryValidate(postal, req.Country, out _))
+            .WithMessage((req, postal) =>
+            {
+                PostalCodeRules.TryValidate(postal, req.Country, out var msg);
+                return msg;
+            });
 
         RuleFor(x => x.Country)
             .NotEmpty().WithMessage("Country is required")
-            .MaximumLength(100).WithMessage("Country must not exceed 100 characters");
+            .Length(2).WithMessage("Country must be a 2-letter ISO code (e.g. US)")
+            .Matches("^[A-Za-z]{2}$").WithMessage("Country must be a 2-letter ISO code (e.g. US)");
 
         RuleFor(x => x.Phone)
-            .MaximumLength(30).WithMessage("Phone number must not exceed 30 characters")
-            .When(x => x.Phone != null);
+            .NotEmpty().WithMessage("Mobile number is required")
+            .Must((req, phone) => PhoneRules.TryValidate(phone, req.Country, out _, required: true))
+            .WithMessage((req, phone) =>
+            {
+                PhoneRules.TryValidate(phone, req.Country, out var msg, required: true);
+                return msg;
+            });
     }
 }
 
@@ -148,15 +160,27 @@ public class UpdateAddressRequestValidator : AbstractValidator<UpdateAddressRequ
 
         RuleFor(x => x.PostalCode)
             .MaximumLength(20).WithMessage("Postal code must not exceed 20 characters")
+            .Must((req, postal) => PostalCodeRules.TryValidate(postal, req.Country, out _))
+            .WithMessage((req, postal) =>
+            {
+                PostalCodeRules.TryValidate(postal, req.Country, out var msg);
+                return msg;
+            })
             .When(x => x.PostalCode != null);
 
         RuleFor(x => x.Country)
-            .MaximumLength(100).WithMessage("Country must not exceed 100 characters")
-            .When(x => x.Country != null);
+            .Length(2).WithMessage("Country must be a 2-letter ISO code (e.g. US)")
+            .Matches("^[A-Za-z]{2}$").WithMessage("Country must be a 2-letter ISO code (e.g. US)")
+            .When(x => !string.IsNullOrWhiteSpace(x.Country));
 
         RuleFor(x => x.Phone)
-            .MaximumLength(30).WithMessage("Phone number must not exceed 30 characters")
-            .When(x => x.Phone != null);
+            .Must((req, phone) => PhoneRules.TryValidate(phone, req.Country, out _, required: false))
+            .WithMessage((req, phone) =>
+            {
+                PhoneRules.TryValidate(phone, req.Country, out var msg, required: false);
+                return msg;
+            })
+            .When(x => x.Phone != null && !string.IsNullOrWhiteSpace(x.Country));
     }
 }
 
@@ -167,6 +191,42 @@ public class GuestCheckoutPreviewRequestValidator : AbstractValidator<GuestCheck
         RuleFor(x => x.Items)
             .NotEmpty().WithMessage("At least one item is required")
             .Must(items => items.Count > 0).WithMessage("At least one item is required");
+
+        RuleFor(x => x.ShippingCountry)
+            .Length(2).WithMessage("Country must be a 2-letter ISO code (e.g. US)")
+            .Matches("^[A-Za-z]{2}$").WithMessage("Country must be a 2-letter ISO code (e.g. US)")
+            .When(x => !string.IsNullOrWhiteSpace(x.ShippingCountry));
+    }
+}
+
+public class GuestAddressRequestValidator : AbstractValidator<GuestAddressRequest>
+{
+    public GuestAddressRequestValidator()
+    {
+        RuleFor(x => x.AddressLine1).NotEmpty().MaximumLength(255);
+        RuleFor(x => x.City).NotEmpty().MaximumLength(100);
+        RuleFor(x => x.State).NotEmpty().MaximumLength(100);
+        RuleFor(x => x.PostalCode)
+            .NotEmpty().WithMessage("Postal code is required")
+            .MaximumLength(20).WithMessage("Postal code must not exceed 20 characters")
+            .Must((req, postal) => PostalCodeRules.TryValidate(postal, req.Country, out _))
+            .WithMessage((req, postal) =>
+            {
+                PostalCodeRules.TryValidate(postal, req.Country, out var msg);
+                return msg;
+            });
+        RuleFor(x => x.Phone)
+            .NotEmpty().WithMessage("Mobile number is required")
+            .Must((req, phone) => PhoneRules.TryValidate(phone, req.Country, out _, required: true))
+            .WithMessage((req, phone) =>
+            {
+                PhoneRules.TryValidate(phone, req.Country, out var msg, required: true);
+                return msg;
+            });
+        RuleFor(x => x.Country)
+            .NotEmpty().WithMessage("Country is required")
+            .Length(2).WithMessage("Country must be a 2-letter ISO code (e.g. US)")
+            .Matches("^[A-Za-z]{2}$").WithMessage("Country must be a 2-letter ISO code (e.g. US)");
     }
 }
 
@@ -194,7 +254,8 @@ public class GuestCheckoutRequestValidator : AbstractValidator<GuestCheckoutRequ
             .Length(3).WithMessage("Currency must be a 3-letter code");
 
         RuleFor(x => x.ShippingAddress)
-            .NotNull().WithMessage("Shipping address is required");
+            .NotNull().WithMessage("Shipping address is required")
+            .SetValidator(new GuestAddressRequestValidator());
     }
 }
 

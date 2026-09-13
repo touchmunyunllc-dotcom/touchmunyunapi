@@ -1,4 +1,5 @@
 using ECommerce.Models;
+using ECommerce.Utils;
 using System.Data;
 using Dapper;
 using System.Linq;
@@ -15,6 +16,7 @@ public class ProductService : IProductService
     // Explicit column mapping for proper Dapper mapping from snake_case to PascalCase
     private const string PRODUCT_SELECT_COLUMNS = @"
         id AS Id,
+        slug AS Slug,
         name AS Name,
         description AS Description,
         price AS Price,
@@ -283,6 +285,65 @@ public class ProductService : IProductService
         return product;
     }
 
+    public async Task<Product?> GetProductBySlugAsync(string slug, bool includeInactive = false)
+    {
+        if (string.IsNullOrWhiteSpace(slug))
+        {
+            return null;
+        }
+
+        var normalized = slug.Trim().ToLowerInvariant();
+        var activeClause = includeInactive ? string.Empty : " AND is_active = TRUE";
+        var product = await _connection.QueryFirstOrDefaultAsync<Product>(
+            $"SELECT {PRODUCT_SELECT_COLUMNS} FROM products WHERE lower(slug) = @Slug{activeClause}",
+            new { Slug = normalized });
+
+        return HydrateProduct(product);
+    }
+
+    public async Task BackfillMissingSlugsAsync()
+    {
+        var rows = (await _connection.QueryAsync<(Guid Id, string Name)>(
+            "SELECT id, name FROM products WHERE slug IS NULL OR trim(slug) = ''")).ToList();
+
+        if (rows.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var row in rows)
+        {
+            var slug = await AllocateUniqueSlugAsync(row.Name, row.Id);
+            await _connection.ExecuteAsync(
+                "UPDATE products SET slug = @Slug, updated_at = @UpdatedAt WHERE id = @Id",
+                new { Slug = slug, Id = row.Id, UpdatedAt = DateTime.UtcNow });
+        }
+
+        await InvalidateProductCacheAsync();
+    }
+
+    private async Task<string> AllocateUniqueSlugAsync(string name, Guid productId)
+    {
+        var baseSlug = ProductSlugRules.Slugify(name);
+        var candidate = baseSlug;
+        var suffix = 2;
+
+        while (true)
+        {
+            var existingId = await _connection.QueryFirstOrDefaultAsync<Guid?>(
+                "SELECT id FROM products WHERE lower(slug) = @Slug LIMIT 1",
+                new { Slug = candidate });
+
+            if (existingId == null || existingId == productId)
+            {
+                return candidate;
+            }
+
+            candidate = $"{baseSlug}-{suffix}";
+            suffix++;
+        }
+    }
+
     public async Task<Product> CreateProductAsync(
         string name,
         string description,
@@ -305,10 +366,12 @@ public class ProductService : IProductService
         bool isActive = true)
     {
         var productId = Guid.NewGuid();
+        var slug = await AllocateUniqueSlugAsync(name, productId);
         var colorImagesJson = Product.SerializeColorImages(colorImages);
         var product = new Product
         {
             Id = productId,
+            Slug = slug,
             Name = name,
             Description = description,
             Price = price,
@@ -334,11 +397,12 @@ public class ProductService : IProductService
         product.HydrateColorImages();
 
         await _connection.ExecuteAsync(@"
-            INSERT INTO products (id, name, description, price, sale_price, images, category, available_quantity, sku, colors, sizes, color_images, customization_type, color_surcharge, no_surcharge_colors, customization_policy, image_object_position, is_active, is_new_arrival, is_best_seller, is_featured, created_at, updated_at)
-            VALUES (@Id, @Name, @Description, @Price, @SalePrice, @Images, @Category, @AvailableQuantity, @Sku, @Colors, @Sizes, CAST(@ColorImagesJson AS jsonb), @CustomizationType, @ColorSurcharge, @NoSurchargeColors, @CustomizationPolicy, @ImageObjectPosition, @IsActive, @IsNewArrival, @IsBestSeller, @IsFeatured, @CreatedAt, @UpdatedAt)",
+            INSERT INTO products (id, slug, name, description, price, sale_price, images, category, available_quantity, sku, colors, sizes, color_images, customization_type, color_surcharge, no_surcharge_colors, customization_policy, image_object_position, is_active, is_new_arrival, is_best_seller, is_featured, created_at, updated_at)
+            VALUES (@Id, @Slug, @Name, @Description, @Price, @SalePrice, @Images, @Category, @AvailableQuantity, @Sku, @Colors, @Sizes, CAST(@ColorImagesJson AS jsonb), @CustomizationType, @ColorSurcharge, @NoSurchargeColors, @CustomizationPolicy, @ImageObjectPosition, @IsActive, @IsNewArrival, @IsBestSeller, @IsFeatured, @CreatedAt, @UpdatedAt)",
             new
             {
                 product.Id,
+                product.Slug,
                 product.Name,
                 product.Description,
                 product.Price,
@@ -404,6 +468,13 @@ public class ProductService : IProductService
         var parameters = new DynamicParameters();
         parameters.Add("Id", id);
         parameters.Add("UpdatedAt", DateTime.UtcNow);
+
+        if (string.IsNullOrWhiteSpace(existingProduct.Slug))
+        {
+            var slug = await AllocateUniqueSlugAsync(existingProduct.Name, id);
+            updateFields.Add("slug = @Slug");
+            parameters.Add("Slug", slug);
+        }
 
         if (name != null)
         {

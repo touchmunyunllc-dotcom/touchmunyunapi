@@ -578,10 +578,28 @@ public class DbContext : IDbContext
                 END $$;");
 
             await connection.ExecuteAsync(@"
+                ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_latitude DECIMAL(10, 7);
+                ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_longitude DECIMAL(10, 7);
+                ALTER TABLE orders ADD COLUMN IF NOT EXISTS checkout_latitude DECIMAL(10, 7);
+                ALTER TABLE orders ADD COLUMN IF NOT EXISTS checkout_longitude DECIMAL(10, 7);
+                ALTER TABLE orders ADD COLUMN IF NOT EXISTS checkout_location_at TIMESTAMPTZ;
+                ALTER TABLE orders ADD COLUMN IF NOT EXISTS shipping_geocoded_at TIMESTAMPTZ;
+                ALTER TABLE orders ADD COLUMN IF NOT EXISTS location_distance_km DECIMAL(10, 2);
+                ALTER TABLE orders ADD COLUMN IF NOT EXISTS location_mismatch_flag BOOLEAN NOT NULL DEFAULT FALSE;
+                ALTER TABLE addresses ADD COLUMN IF NOT EXISTS latitude DECIMAL(10, 7);
+                ALTER TABLE addresses ADD COLUMN IF NOT EXISTS longitude DECIMAL(10, 7);
+                ALTER TABLE addresses ADD COLUMN IF NOT EXISTS geocoded_at TIMESTAMPTZ;");
+
+            await connection.ExecuteAsync(@"
                 ALTER TABLE products ADD COLUMN IF NOT EXISTS color_surcharge DECIMAL(18, 2) NOT NULL DEFAULT 0;
                 ALTER TABLE products ADD COLUMN IF NOT EXISTS no_surcharge_colors TEXT[] DEFAULT ARRAY[]::TEXT[];
                 ALTER TABLE products ADD COLUMN IF NOT EXISTS customization_policy TEXT;
-                ALTER TABLE products ADD COLUMN IF NOT EXISTS image_object_position VARCHAR(50);");
+                ALTER TABLE products ADD COLUMN IF NOT EXISTS image_object_position VARCHAR(50);
+                ALTER TABLE products ADD COLUMN IF NOT EXISTS slug VARCHAR(120);");
+
+            await connection.ExecuteAsync(@"
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_products_slug ON products(slug)
+                WHERE slug IS NOT NULL AND trim(slug) <> '';");
 
             // Apparel sizes as text (XS, S, M, L, XL) and cart/order size columns
             await connection.ExecuteAsync(@"
@@ -631,7 +649,25 @@ public class DbContext : IDbContext
                 );
                 INSERT INTO store_settings (key, value)
                 VALUES ('sales_tax_rate', '0.10')
-                ON CONFLICT (key) DO NOTHING;");
+                ON CONFLICT (key) DO NOTHING;
+                INSERT INTO store_settings (key, value)
+                VALUES ('shipping_standard_usd', '7')
+                ON CONFLICT (key) DO NOTHING;
+                INSERT INTO store_settings (key, value)
+                VALUES ('shipping_international_usd', '10')
+                ON CONFLICT (key) DO NOTHING;
+
+                CREATE TABLE IF NOT EXISTS countries (
+                    code CHAR(2) PRIMARY KEY,
+                    name VARCHAR(100) NOT NULL
+                );
+
+                UPDATE addresses SET country = 'US'
+                WHERE country ILIKE '%united states%'
+                   OR UPPER(TRIM(country)) IN ('US', 'USA', 'U.S.', 'U.S.A.');
+
+                UPDATE addresses SET country = UPPER(TRIM(country))
+                WHERE LENGTH(TRIM(country)) = 2;");
         }
         catch (Exception ex)
         {
@@ -650,6 +686,7 @@ public class DbContext : IDbContext
             "CREATE INDEX IF NOT EXISTS idx_products_category ON products(category)",
             "CREATE INDEX IF NOT EXISTS idx_products_price ON products(price)",
             "CREATE INDEX IF NOT EXISTS idx_products_sku ON products(sku)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_products_slug ON products(slug) WHERE slug IS NOT NULL AND trim(slug) <> ''",
             "CREATE INDEX IF NOT EXISTS idx_coupons_code ON coupons(code)",
             "CREATE INDEX IF NOT EXISTS idx_coupons_is_active ON coupons(is_active)",
             "CREATE INDEX IF NOT EXISTS idx_orders_user_id ON orders(user_id)",

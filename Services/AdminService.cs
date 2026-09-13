@@ -51,6 +51,12 @@ public class AdminService : IAdminService
                 o.stripe_payment_intent_id,
                 o.notes,
                 o.cancellation_reason,
+                o.shipping_latitude,
+                o.shipping_longitude,
+                o.checkout_latitude,
+                o.checkout_longitude,
+                o.location_distance_km,
+                o.location_mismatch_flag,
                 o.created_at,
                 o.updated_at,
                 u.name as user_name,
@@ -182,6 +188,12 @@ public class AdminService : IAdminService
             ShippingAddress = !string.IsNullOrEmpty(o.address_line1) 
                 ? $"{o.address_line1}{(string.IsNullOrEmpty(o.address_line2) ? "" : ", " + o.address_line2)}, {o.city}, {o.state} {o.postal_code}, {o.country}"
                 : null,
+            ShippingLatitude = (decimal?)o.shipping_latitude,
+            ShippingLongitude = (decimal?)o.shipping_longitude,
+            CheckoutLatitude = (decimal?)o.checkout_latitude,
+            CheckoutLongitude = (decimal?)o.checkout_longitude,
+            LocationDistanceKm = (decimal?)o.location_distance_km,
+            LocationMismatchFlag = o.location_mismatch_flag is bool b ? b : Convert.ToBoolean(o.location_mismatch_flag ?? false),
             CreatedAt = o.created_at,
             UpdatedAt = o.updated_at,
             OrderItems = orderItems.ContainsKey((Guid)o.id) 
@@ -209,10 +221,12 @@ public class AdminService : IAdminService
         var order = await _connection.QueryFirstOrDefaultAsync(
             @"
             SELECT o.*, u.name as user_name, u.email as user_email, u.phone_number as user_phone_number,
+                   sa.phone as shipping_phone,
                    c.code as coupon_code, o.order_code, o.guest_email,
                    p.payment_method
             FROM orders o
             LEFT JOIN users u ON o.user_id = u.id
+            LEFT JOIN addresses sa ON o.shipping_address_id = sa.id
             LEFT JOIN coupons c ON o.coupon_id = c.id
             LEFT JOIN payments p ON p.order_id = o.id
             WHERE o.id = @Id",
@@ -246,7 +260,7 @@ public class AdminService : IAdminService
             UserId = order.user_id,
             UserName = order.user_name ?? (string?)order.guest_name,
             UserEmail = order.user_email ?? order.guest_email,
-            UserPhoneNumber = (string?)order.user_phone_number,
+            UserPhoneNumber = (string?)order.user_phone_number ?? (string?)order.shipping_phone,
             TotalAmount = order.total_amount,
             Status = order.status,
             CouponCode = order.coupon_code,
@@ -745,7 +759,7 @@ public class AdminService : IAdminService
             RecentOrders = recentOrders.Select(o => new CustomerOrderInfo
             {
                 OrderId = o.order_id,
-                OrderCode = o.order_code ?? o.order_id.ToString(),
+                OrderCode = OrderCodeRules.Display((string?)o.order_code),
                 TotalAmount = o.total_amount,
                 Status = o.status,
                 CreatedAt = o.created_at

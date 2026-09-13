@@ -8,6 +8,8 @@ public class Product
     public const string CustomizationWristband = "wristband";
 
     public Guid Id { get; set; }
+    /// <summary>Public storefront URL segment (e.g. streamer-towel).</summary>
+    public string Slug { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public decimal Price { get; set; }

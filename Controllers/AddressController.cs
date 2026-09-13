@@ -1,6 +1,7 @@
 using ECommerce.DTOs;
 using ECommerce.Models;
 using ECommerce.Services;
+using ECommerce.Utils;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System.Security.Claims;
@@ -14,17 +15,23 @@ namespace ECommerce.Controllers;
 public class AddressController : ControllerBase
 {
     private readonly IAddressService _addressService;
+    private readonly ICountryService _countryService;
     private readonly IValidator<CreateAddressRequest> _createAddressValidator;
     private readonly IValidator<UpdateAddressRequest> _updateAddressValidator;
+    private readonly IOrderLocationService _orderLocationService;
 
     public AddressController(
         IAddressService addressService,
+        ICountryService countryService,
         IValidator<CreateAddressRequest> createAddressValidator,
-        IValidator<UpdateAddressRequest> updateAddressValidator)
+        IValidator<UpdateAddressRequest> updateAddressValidator,
+        IOrderLocationService orderLocationService)
     {
         _addressService = addressService;
+        _countryService = countryService;
         _createAddressValidator = createAddressValidator;
         _updateAddressValidator = updateAddressValidator;
+        _orderLocationService = orderLocationService;
     }
 
     [HttpGet]
@@ -78,6 +85,23 @@ public class AddressController : ControllerBase
             return Unauthorized();
         }
 
+        var countryCode = CountryCodeHelper.NormalizeToIsoCode(request.Country);
+        if (!await _countryService.ExistsAsync(countryCode))
+        {
+            return BadRequest(new { message = "Invalid country code." });
+        }
+
+        var phone = request.Phone;
+        if (!string.IsNullOrWhiteSpace(phone))
+        {
+            if (!PhoneRules.TryNormalizeToE164(phone, countryCode, out var e164, out var phoneError))
+            {
+                return BadRequest(new { message = phoneError });
+            }
+
+            phone = e164;
+        }
+
         var address = await _addressService.CreateAddressAsync(
             userIdGuid,
             request.AddressLine1,
@@ -85,9 +109,11 @@ public class AddressController : ControllerBase
             request.City,
             request.State,
             request.PostalCode,
-            request.Country,
+            countryCode,
             request.IsDefault,
-            request.Phone);
+            phone);
+
+        _orderLocationService.ScheduleAddressGeocode(address.Id);
 
         return CreatedAtAction(nameof(GetAddressById), new { id = address.Id }, MapToResponse(address));
     }
@@ -109,6 +135,34 @@ public class AddressController : ControllerBase
             return Unauthorized();
         }
 
+        var existing = await _addressService.GetAddressByIdAsync(id, userIdGuid);
+        if (existing == null)
+        {
+            return NotFound();
+        }
+
+        string? countryCode = null;
+        if (!string.IsNullOrWhiteSpace(request.Country))
+        {
+            countryCode = CountryCodeHelper.NormalizeToIsoCode(request.Country);
+            if (!await _countryService.ExistsAsync(countryCode))
+            {
+                return BadRequest(new { message = "Invalid country code." });
+            }
+        }
+
+        var phoneRegion = countryCode ?? existing.Country;
+        var phone = request.Phone;
+        if (!string.IsNullOrWhiteSpace(phone))
+        {
+            if (!PhoneRules.TryNormalizeToE164(phone, phoneRegion, out var e164, out var phoneError))
+            {
+                return BadRequest(new { message = phoneError });
+            }
+
+            phone = e164;
+        }
+
         var updatedAddress = await _addressService.UpdateAddressAsync(
             id,
             userIdGuid,
@@ -117,13 +171,19 @@ public class AddressController : ControllerBase
             request.City,
             request.State,
             request.PostalCode,
-            request.Country,
+            countryCode,
             request.IsDefault,
-            request.Phone);
+            phone);
 
         if (updatedAddress == null)
         {
             return NotFound();
+        }
+
+        if (request.AddressLine1 != null || request.AddressLine2 != null || request.City != null
+            || request.State != null || request.PostalCode != null || request.Country != null)
+        {
+            _orderLocationService.ScheduleAddressGeocode(updatedAddress.Id);
         }
 
         return Ok(MapToResponse(updatedAddress));

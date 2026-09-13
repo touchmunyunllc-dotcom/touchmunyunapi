@@ -18,6 +18,7 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
     private readonly IStripeService _stripeService;
     private readonly ILogger<StripeCheckoutFulfillmentService> _logger;
     private readonly IExceptionLogService _exceptionLogService;
+    private readonly IOrderLocationService _orderLocationService;
     private const int MaxQuantityPerProduct = 10;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -33,7 +34,8 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
         IAdminNotificationService adminNotificationService,
         IStripeService stripeService,
         ILogger<StripeCheckoutFulfillmentService> logger,
-        IExceptionLogService exceptionLogService)
+        IExceptionLogService exceptionLogService,
+        IOrderLocationService orderLocationService)
     {
         _connection = connection;
         _cartService = cartService;
@@ -42,6 +44,7 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
         _stripeService = stripeService;
         _logger = logger;
         _exceptionLogService = exceptionLogService;
+        _orderLocationService = orderLocationService;
     }
 
     public async Task SavePendingCheckoutAsync(string paymentIntentId, StripeCheckoutPendingPayload payload)
@@ -264,12 +267,19 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
                     CreatedAt = DateTime.UtcNow
                 }, transaction);
 
+            await _orderLocationService.SaveCheckoutCoordinatesAsync(
+                orderId,
+                payload.CheckoutLatitude,
+                payload.CheckoutLongitude,
+                transaction);
+
             await _connection.ExecuteAsync(
                 "DELETE FROM stripe_checkout_pending WHERE payment_intent_id = @Pi",
                 new { Pi = paymentIntentId },
                 transaction);
 
             transaction.Commit();
+            _orderLocationService.ScheduleShippingGeocodeForOrder(orderId, payload.ShippingAddressId);
         }
         catch (InsufficientStockException ex)
         {
@@ -303,6 +313,7 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
         }
 
         await _cartService.ClearCartAsync(userId);
+        await NotifyAdminNewOrderRegisteredAsync(orderCode, orderId, userId, payload);
         return new FulfillmentResult(true, true, orderId, FulfillmentFailureKind.None);
     }
 
@@ -332,8 +343,8 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
             {
                 shippingAddressId = Guid.NewGuid();
                 await _connection.ExecuteAsync(@"
-                    INSERT INTO addresses (id, user_id, address_line1, address_line2, city, state, postal_code, country, is_default, created_at)
-                    VALUES (@Id, NULL, @Line1, @Line2, @City, @State, @PostalCode, @Country, FALSE, @CreatedAt)",
+                    INSERT INTO addresses (id, user_id, address_line1, address_line2, city, state, postal_code, country, phone, is_default, created_at)
+                    VALUES (@Id, NULL, @Line1, @Line2, @City, @State, @PostalCode, @Country, @Phone, FALSE, @CreatedAt)",
                     new
                     {
                         Id = shippingAddressId,
@@ -343,6 +354,9 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
                         payload.GuestAddress.State,
                         payload.GuestAddress.PostalCode,
                         payload.GuestAddress.Country,
+                        Phone = string.IsNullOrWhiteSpace(payload.GuestAddress.Phone)
+                            ? null
+                            : payload.GuestAddress.Phone.Trim(),
                         CreatedAt = DateTime.UtcNow
                     }, transaction);
             }
@@ -415,12 +429,19 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
                     CreatedAt = DateTime.UtcNow
                 }, transaction);
 
+            await _orderLocationService.SaveCheckoutCoordinatesAsync(
+                orderId,
+                payload.CheckoutLatitude,
+                payload.CheckoutLongitude,
+                transaction);
+
             await _connection.ExecuteAsync(
                 "DELETE FROM stripe_checkout_pending WHERE payment_intent_id = @Pi",
                 new { Pi = paymentIntentId },
                 transaction);
 
             transaction.Commit();
+            _orderLocationService.ScheduleShippingGeocodeForOrder(orderId, shippingAddressId);
         }
         catch (InsufficientStockException ex)
         {
@@ -452,6 +473,76 @@ public class StripeCheckoutFulfillmentService : IStripeCheckoutFulfillmentServic
             throw;
         }
 
+        await NotifyAdminNewOrderGuestAsync(orderCode, payload);
         return new FulfillmentResult(true, true, orderId, FulfillmentFailureKind.None);
+    }
+
+    private async Task NotifyAdminNewOrderRegisteredAsync(
+        string orderCode,
+        Guid orderId,
+        Guid userId,
+        StripeCheckoutPendingPayload payload)
+    {
+        var user = await _connection.QueryFirstOrDefaultAsync(
+            "SELECT name, email FROM users WHERE id = @Id",
+            new { Id = userId });
+
+        string? shippingAddress = null;
+        if (payload.ShippingAddressId.HasValue)
+        {
+            var addr = await _connection.QueryFirstOrDefaultAsync(
+                @"SELECT address_line1, address_line2, city, state, postal_code, country
+                  FROM addresses WHERE id = @Id",
+                new { Id = payload.ShippingAddressId.Value });
+            if (addr != null)
+            {
+                shippingAddress = ShippingAddressFormatter.Format(
+                    (string?)addr.address_line1,
+                    (string?)addr.address_line2,
+                    (string?)addr.city,
+                    (string?)addr.state,
+                    (string?)addr.postal_code,
+                    (string?)addr.country);
+            }
+        }
+
+        await _adminNotificationService.NotifyNewOrderAsync(
+            new AdminNewOrderAlert(
+                orderCode,
+                payload.TotalAmount,
+                payload.Items.Count,
+                OrderStatus.Paid.ToString(),
+                (string?)user?.name,
+                (string?)user?.email,
+                shippingAddress,
+                "Card (Stripe)",
+                IsGuest: false));
+    }
+
+    private Task NotifyAdminNewOrderGuestAsync(string orderCode, StripeCheckoutPendingPayload payload)
+    {
+        string? shippingAddress = null;
+        if (payload.GuestAddress != null)
+        {
+            shippingAddress = ShippingAddressFormatter.Format(
+                payload.GuestAddress.Line1,
+                payload.GuestAddress.Line2,
+                payload.GuestAddress.City,
+                payload.GuestAddress.State,
+                payload.GuestAddress.PostalCode,
+                payload.GuestAddress.Country);
+        }
+
+        return _adminNotificationService.NotifyNewOrderAsync(
+            new AdminNewOrderAlert(
+                orderCode,
+                payload.TotalAmount,
+                payload.Items.Count,
+                OrderStatus.Paid.ToString(),
+                payload.GuestName,
+                payload.GuestEmail,
+                shippingAddress,
+                "Card (Stripe)",
+                IsGuest: true));
     }
 }

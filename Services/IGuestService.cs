@@ -7,7 +7,8 @@ public interface IGuestService
 {
     Task<GuestCheckoutPreviewResponse> PreviewGuestCheckoutAsync(
         List<GuestOrderItemRequest> items,
-        string? couponCode);
+        string? couponCode,
+        string? shippingCountry);
 
     Task<GuestOrderResult> CreateGuestOrderAsync(
         string email,
@@ -16,7 +17,9 @@ public interface IGuestService
         decimal totalAmount,
         string currency,
         string? couponCode,
-        GuestAddress shippingAddress);
+        GuestAddress shippingAddress,
+        decimal? checkoutLatitude = null,
+        decimal? checkoutLongitude = null);
     
     Task<GuestOrder?> GetGuestOrderAsync(string orderCode);
     
@@ -42,7 +45,8 @@ public record GuestAddress(
     string City,
     string State,
     string PostalCode,
-    string Country);
+    string Country,
+    string Phone);
 
 public record GuestOrderResult(
     string? OrderCode,

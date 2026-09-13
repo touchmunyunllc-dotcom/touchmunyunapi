@@ -65,33 +65,28 @@ public class ContactController : ControllerBase
                   VALUES (@Name, @Email, @Subject, @Message)",
                 new { request.Name, request.Email, request.Subject, request.Message });
 
-            var adminEmail = _configuration["AdminSettings:Email"] ?? "TouchMunyunLLC@gmail.com";
+            var adminEmail = _configuration["AdminSettings:Email"]
+                ?? _configuration["Admin:Email"]
+                ?? "TouchMunyunLLC@gmail.com";
 
-            var htmlBody = $@"
-<div style='font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;'>
-    <h2 style='color: #333; border-bottom: 2px solid #f59e0b; padding-bottom: 10px;'>New Contact Form Submission</h2>
-    <table style='width: 100%; border-collapse: collapse;'>
-        <tr>
-            <td style='padding: 8px; font-weight: bold; color: #555;'>Name:</td>
-            <td style='padding: 8px;'>{System.Net.WebUtility.HtmlEncode(request.Name)}</td>
-        </tr>
-        <tr style='background-color: #f9f9f9;'>
-            <td style='padding: 8px; font-weight: bold; color: #555;'>Email:</td>
-            <td style='padding: 8px;'><a href='mailto:{System.Net.WebUtility.HtmlEncode(request.Email)}'>{System.Net.WebUtility.HtmlEncode(request.Email)}</a></td>
-        </tr>
-        <tr>
-            <td style='padding: 8px; font-weight: bold; color: #555;'>Subject:</td>
-            <td style='padding: 8px;'>{System.Net.WebUtility.HtmlEncode(request.Subject)}</td>
-        </tr>
-    </table>
-    <div style='margin-top: 20px; padding: 15px; background-color: #f5f5f5; border-radius: 8px;'>
-        <h3 style='margin-top: 0; color: #555;'>Message:</h3>
-        <p style='white-space: pre-wrap; color: #333;'>{System.Net.WebUtility.HtmlEncode(request.Message)}</p>
-    </div>
-    <p style='margin-top: 20px; font-size: 12px; color: #999;'>
-        Sent from TouchMunyun contact form at {DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC
-    </p>
-</div>";
+            var brand = EmailBrandOptions.FromConfiguration(_configuration);
+            var inner = EmailTemplates.DataTable(
+                EmailTemplates.DataRow("Name", EmailTemplates.Encode(request.Name))
+                + EmailTemplates.DataRow(
+                    "Email",
+                    $@"<a href=""mailto:{EmailTemplates.Encode(request.Email)}"">{EmailTemplates.Encode(request.Email)}</a>",
+                    shaded: true)
+                + EmailTemplates.DataRow("Subject", EmailTemplates.Encode(request.Subject)))
+                + EmailTemplates.Card(
+                    $@"<h3 style=""margin:0 0 8px;font-size:15px;"">Message</h3>
+<p style=""margin:0;white-space:pre-wrap;"">{EmailTemplates.Encode(request.Message)}</p>")
+                + EmailTemplates.Paragraph($"Sent from the contact form at {DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC.");
+
+            var htmlBody = EmailTemplates.Layout(
+                brand,
+                "Contact form message",
+                inner,
+                adminAlert: true);
 
             var textBody = $"Contact Form Submission\n\nName: {request.Name}\nEmail: {request.Email}\nSubject: {request.Subject}\n\nMessage:\n{request.Message}";
 

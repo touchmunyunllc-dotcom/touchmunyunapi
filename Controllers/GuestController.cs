@@ -15,17 +15,20 @@ public class GuestController : ControllerBase
     private readonly IValidator<GuestCheckoutRequest> _guestCheckoutValidator;
     private readonly IValidator<GuestCheckoutPreviewRequest> _previewValidator;
     private readonly IRecaptchaService _recaptchaService;
+    private readonly ICountryService _countryService;
 
     public GuestController(
         IGuestService guestService,
         IValidator<GuestCheckoutRequest> guestCheckoutValidator,
         IValidator<GuestCheckoutPreviewRequest> previewValidator,
-        IRecaptchaService recaptchaService)
+        IRecaptchaService recaptchaService,
+        ICountryService countryService)
     {
         _guestService = guestService;
         _guestCheckoutValidator = guestCheckoutValidator;
         _previewValidator = previewValidator;
         _recaptchaService = recaptchaService;
+        _countryService = countryService;
     }
 
     /// <summary>Server-computed totals for guest cart (use this total in POST checkout).</summary>
@@ -43,7 +46,21 @@ public class GuestController : ControllerBase
 
         try
         {
-            var preview = await _guestService.PreviewGuestCheckoutAsync(request.Items, request.CouponCode);
+            if (!string.IsNullOrWhiteSpace(request.ShippingCountry))
+            {
+                var previewCode = CountryCodeHelper.NormalizeToIsoCode(request.ShippingCountry);
+                if (!await _countryService.ExistsAsync(previewCode))
+                {
+                    return BadRequest(new { message = "Invalid country code." });
+                }
+
+                request = request with { ShippingCountry = previewCode };
+            }
+
+            var preview = await _guestService.PreviewGuestCheckoutAsync(
+                request.Items,
+                request.CouponCode,
+                request.ShippingCountry);
             return Ok(preview);
         }
         catch (Exception ex)
@@ -73,6 +90,29 @@ public class GuestController : ControllerBase
 
         try
         {
+            var countryCode = CountryCodeHelper.NormalizeToIsoCode(request.ShippingAddress.Country);
+            if (!await _countryService.ExistsAsync(countryCode))
+            {
+                return BadRequest(new { message = "Invalid country code." });
+            }
+
+            if (!PhoneRules.TryNormalizeToE164(
+                    request.ShippingAddress.Phone,
+                    countryCode,
+                    out var guestPhoneE164,
+                    out var guestPhoneError))
+            {
+                return BadRequest(new { message = guestPhoneError });
+            }
+
+            if (!GeoCoordinates.TryValidate(
+                    request.CheckoutLatitude,
+                    request.CheckoutLongitude,
+                    out var geoError))
+            {
+                return BadRequest(new { message = geoError });
+            }
+
             var result = await _guestService.CreateGuestOrderAsync(
                 request.Email,
                 request.Name,
@@ -88,7 +128,10 @@ public class GuestController : ControllerBase
                     request.ShippingAddress.City,
                     request.ShippingAddress.State,
                     request.ShippingAddress.PostalCode,
-                    request.ShippingAddress.Country));
+                    countryCode,
+                    guestPhoneE164),
+                request.CheckoutLatitude,
+                request.CheckoutLongitude);
 
             return Ok(new GuestOrderResponse(
                 result.OrderCode,

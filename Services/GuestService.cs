@@ -36,21 +36,27 @@ public class GuestService : IGuestService
 
     public async Task<GuestCheckoutPreviewResponse> PreviewGuestCheckoutAsync(
         List<GuestOrderItemRequest> items,
-        string? couponCode)
+        string? couponCode,
+        string? shippingCountry)
     {
         var guestItems = items
             .Select(i => new GuestOrderItem(
                 i.ProductId, i.Name, i.Price, i.Quantity,
                 i.SelectedColor, i.SelectedSize, i.CustomNumber, i.WritingColor))
             .ToList();
-        var (subtotal, tax, total, couponId, _) = await ComputeGuestTotalsAsync(guestItems, couponCode, validate: true);
-        return new GuestCheckoutPreviewResponse(subtotal, tax, total, couponId.HasValue);
+        var (subtotal, tax, shipping, total, couponId, _) = await ComputeGuestTotalsAsync(
+            guestItems,
+            couponCode,
+            shippingCountry,
+            validate: true);
+        return new GuestCheckoutPreviewResponse(subtotal, tax, shipping, total, couponId.HasValue);
     }
 
     /// <summary>Server-side prices from catalog; validates stock/customization when validate is true.</summary>
-    private async Task<(decimal Subtotal, decimal Tax, decimal Total, Guid? CouponId, List<PendingCheckoutLineItem> Lines)> ComputeGuestTotalsAsync(
+    private async Task<(decimal Subtotal, decimal Tax, decimal Shipping, decimal Total, Guid? CouponId, List<PendingCheckoutLineItem> Lines)> ComputeGuestTotalsAsync(
         List<GuestOrderItem> items,
         string? couponCode,
+        string? shippingCountry,
         bool validate)
     {
         if (items == null || items.Count == 0)
@@ -112,26 +118,32 @@ public class GuestService : IGuestService
         }
 
         decimal tax = await _cartService.CalculateTaxAsync(subtotal);
-        decimal total = subtotal + tax;
+        decimal shipping = 0m;
+        if (!string.IsNullOrWhiteSpace(shippingCountry))
+        {
+            shipping = await _cartService.CalculateShippingAsync(shippingCountry);
+        }
+
+        decimal discountedSubtotal = subtotal;
         Guid? couponId = null;
 
         if (!string.IsNullOrEmpty(couponCode))
         {
             try
             {
-                var discountedSubtotal = await _couponService.ApplyCouponAsync(couponCode, subtotal);
-                total = discountedSubtotal + tax;
+                discountedSubtotal = await _couponService.ApplyCouponAsync(couponCode, subtotal);
                 couponId = await _connection.QueryFirstOrDefaultAsync<Guid?>(
                     "SELECT id FROM coupons WHERE UPPER(code) = UPPER(@Code) AND is_active = TRUE",
                     new { Code = couponCode });
             }
             catch
             {
-                // Coupon invalid, keep original total
+                // Coupon invalid, keep original subtotal
             }
         }
 
-        return (subtotal, tax, total, couponId, lines);
+        var total = discountedSubtotal + tax + shipping;
+        return (subtotal, tax, shipping, total, couponId, lines);
     }
 
     public async Task<GuestOrderResult> CreateGuestOrderAsync(
@@ -141,9 +153,15 @@ public class GuestService : IGuestService
         decimal totalAmount,
         string currency,
         string? couponCode,
-        GuestAddress shippingAddress)
+        GuestAddress shippingAddress,
+        decimal? checkoutLatitude = null,
+        decimal? checkoutLongitude = null)
     {
-        var (_, _, total, couponId, lines) = await ComputeGuestTotalsAsync(items, couponCode, validate: true);
+        var (_, _, _, total, couponId, lines) = await ComputeGuestTotalsAsync(
+            items,
+            couponCode,
+            shippingAddress.Country,
+            validate: true);
 
         if (Math.Abs(totalAmount - total) > 0.01m)
         {
@@ -167,9 +185,12 @@ public class GuestService : IGuestService
                 City = shippingAddress.City,
                 State = shippingAddress.State,
                 PostalCode = shippingAddress.PostalCode,
-                Country = shippingAddress.Country
+                Country = shippingAddress.Country,
+                Phone = shippingAddress.Phone.Trim()
             },
-            Items = lines
+            Items = lines,
+            CheckoutLatitude = checkoutLatitude,
+            CheckoutLongitude = checkoutLongitude
         };
 
         await _stripeCheckoutFulfillment.SavePendingCheckoutAsync(paymentIntent.PaymentIntentId, payload);

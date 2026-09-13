@@ -69,13 +69,23 @@ public class ProductsController : ControllerBase
         return Ok(products);
     }
 
-    [HttpGet("{id:guid}")]
+    /// <summary>Storefront lookup by URL slug; legacy GUID still works for admin/bookmarks.</summary>
+    [HttpGet("{publicId}")]
     [ProducesResponseType(typeof(Product), 200)]
     [ProducesResponseType(404)]
-    public async Task<IActionResult> GetProductById(Guid id)
+    public async Task<IActionResult> GetProduct(string publicId)
     {
         var includeInactive = User.IsInRole("Admin");
-        var product = await _productService.GetProductByIdAsync(id, includeInactive);
+        Product? product;
+        if (Guid.TryParse(publicId, out var id))
+        {
+            product = await _productService.GetProductByIdAsync(id, includeInactive);
+        }
+        else
+        {
+            product = await _productService.GetProductBySlugAsync(publicId, includeInactive);
+        }
+
         if (product == null)
         {
             return NotFound();
@@ -122,7 +132,7 @@ public class ProductsController : ControllerBase
             product = await _productService.GetProductByIdAsync(product.Id, includeInactive: true) ?? product;
         }
 
-        return CreatedAtAction(nameof(GetProductById), new { id = product.Id }, product);
+        return CreatedAtAction(nameof(GetProduct), new { publicId = product.Slug }, product);
     }
 
     [HttpPut("{id:guid}")]

@@ -27,6 +27,10 @@ public interface IProductService
     Task<List<Product>> GetBestSellersAsync(int limit = 50);
     
     Task<Product?> GetProductByIdAsync(Guid id, bool includeInactive = false);
+
+    Task<Product?> GetProductBySlugAsync(string slug, bool includeInactive = false);
+
+    Task BackfillMissingSlugsAsync();
     
     Task<Product> CreateProductAsync(
         string name,

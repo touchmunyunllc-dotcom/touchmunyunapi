@@ -9,14 +9,18 @@ public interface IPaymentService
         decimal amount,
         string currency,
         string? couponCode = null,
-        Guid? shippingAddressId = null);
+        Guid? shippingAddressId = null,
+        decimal? checkoutLatitude = null,
+        decimal? checkoutLongitude = null);
 
     Task<CodOrderResult> CreateCodOrderAsync(
         Guid userId,
         decimal amount,
         string currency,
         string? couponCode = null,
-        Guid? shippingAddressId = null);
+        Guid? shippingAddressId = null,
+        decimal? checkoutLatitude = null,
+        decimal? checkoutLongitude = null);
 
     /// <summary>Cart snapshot for Stripe Hosted Checkout / deferred fulfillment (same rules as PaymentIntent flow).</summary>
     Task<StripeCheckoutPendingPayload> BuildRegisteredCheckoutPayloadAsync(

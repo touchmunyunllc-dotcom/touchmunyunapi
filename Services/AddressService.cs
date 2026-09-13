@@ -116,40 +116,55 @@ public class AddressService : IAddressService
         parameters.Add("UserId", userId);
         parameters.Add("UpdatedAt", DateTime.UtcNow);
 
+        var clearsGeocodeCache = false;
+
         if (addressLine1 != null)
         {
             updateFields.Add("address_line1 = @AddressLine1");
             parameters.Add("AddressLine1", addressLine1);
+            clearsGeocodeCache = true;
         }
 
         if (addressLine2 != null)
         {
             updateFields.Add("address_line2 = @AddressLine2");
             parameters.Add("AddressLine2", addressLine2);
+            clearsGeocodeCache = true;
         }
 
         if (city != null)
         {
             updateFields.Add("city = @City");
             parameters.Add("City", city);
+            clearsGeocodeCache = true;
         }
 
         if (state != null)
         {
             updateFields.Add("state = @State");
             parameters.Add("State", state);
+            clearsGeocodeCache = true;
         }
 
         if (postalCode != null)
         {
             updateFields.Add("postal_code = @PostalCode");
             parameters.Add("PostalCode", postalCode);
+            clearsGeocodeCache = true;
         }
 
         if (country != null)
         {
             updateFields.Add("country = @Country");
             parameters.Add("Country", country);
+            clearsGeocodeCache = true;
+        }
+
+        if (clearsGeocodeCache)
+        {
+            updateFields.Add("latitude = NULL");
+            updateFields.Add("longitude = NULL");
+            updateFields.Add("geocoded_at = NULL");
         }
 
         if (phone != null)

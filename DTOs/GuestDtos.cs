@@ -3,11 +3,13 @@ namespace ECommerce.DTOs;
 /// <summary>Server-side totals for guest cart (matches CreateGuestOrderAsync math).</summary>
 public record GuestCheckoutPreviewRequest(
     List<GuestOrderItemRequest> Items,
-    string? CouponCode);
+    string? CouponCode,
+    string? ShippingCountry = null);
 
 public record GuestCheckoutPreviewResponse(
     decimal Subtotal,
     decimal Tax,
+    decimal Shipping,
     decimal TotalAmount,
     bool CouponApplied);
 
@@ -19,7 +21,9 @@ public record GuestCheckoutRequest(
     string Currency,
     string? CouponCode,
     GuestAddressRequest ShippingAddress,
-    string? CaptchaToken = null);
+    string? CaptchaToken = null,
+    decimal? CheckoutLatitude = null,
+    decimal? CheckoutLongitude = null);
 
 public record GuestOrderItemRequest(
     Guid ProductId,
@@ -37,7 +41,8 @@ public record GuestAddressRequest(
     string City,
     string State,
     string PostalCode,
-    string Country);
+    string Country,
+    string Phone);
 
 public record GuestOrderResponse(
     string? OrderCode,

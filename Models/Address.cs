@@ -10,8 +10,11 @@ public class Address
     public string City { get; set; } = string.Empty;
     public string State { get; set; } = string.Empty;
     public string PostalCode { get; set; } = string.Empty;
-    public string Country { get; set; } = "United States";
+    public string Country { get; set; } = "US";
     public string? Phone { get; set; }
+    public decimal? Latitude { get; set; }
+    public decimal? Longitude { get; set; }
+    public DateTime? GeocodedAt { get; set; }
     public bool IsDefault { get; set; } = false;
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }

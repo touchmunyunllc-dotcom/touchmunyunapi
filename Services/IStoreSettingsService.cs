@@ -6,4 +6,13 @@ public interface IStoreSettingsService
     Task<decimal> GetSalesTaxRateAsync();
 
     Task SetSalesTaxRateAsync(decimal rate);
+
+    Task<decimal> GetShippingStandardUsdAsync();
+
+    Task<decimal> GetShippingInternationalUsdAsync();
+
+    Task SetShippingRatesAsync(decimal standardUsd, decimal internationalUsd);
+
+    /// <summary>Flat shipping from country; requires non-empty country.</summary>
+    Task<decimal> GetShippingAmountForCountryAsync(string country);
 }

@@ -13,10 +13,11 @@ public interface ICartService
         string? customNumber = null,
         string? writingColor = null);
     Task<bool> RemoveFromCartAsync(Guid userId, Guid itemId);
-    Task<CartSummary> GetCartAsync(Guid userId, string? couponCode = null);
+    Task<CartSummary> GetCartAsync(Guid userId, string? couponCode = null, string? shippingCountry = null);
     Task<bool> UpdateCartItemQuantityAsync(Guid userId, Guid itemId, int quantity);
     Task<bool> ClearCartAsync(Guid userId);
-    Task<CartSummary> ApplyCouponAsync(Guid userId, string couponCode);
+    Task<CartSummary> ApplyCouponAsync(Guid userId, string couponCode, string? shippingCountry = null);
     Task<decimal> CalculateTaxAsync(decimal subtotal);
+    Task<decimal> CalculateShippingAsync(string shippingCountry);
 }
 

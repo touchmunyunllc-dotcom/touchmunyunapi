@@ -98,7 +98,7 @@ public class CartController : ControllerBase
 
     [HttpGet("view")]
     [ProducesResponseType(typeof(CartSummaryResponse), 200)]
-    public async Task<IActionResult> ViewCart([FromQuery] string? couponCode = null)
+    public async Task<IActionResult> ViewCart([FromQuery] string? couponCode = null, [FromQuery] string? shippingCountry = null)
     {
         var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId == null)
@@ -106,7 +106,7 @@ public class CartController : ControllerBase
             return Unauthorized();
         }
 
-        var cart = await _cartService.GetCartAsync(Guid.Parse(userId), couponCode);
+        var cart = await _cartService.GetCartAsync(Guid.Parse(userId), couponCode, shippingCountry);
         return Ok(MapToResponse(cart));
     }
 
@@ -146,7 +146,9 @@ public class CartController : ControllerBase
     [HttpPost("apply-coupon")]
     [ProducesResponseType(typeof(CartSummaryResponse), 200)]
     [ProducesResponseType(400)]
-    public async Task<IActionResult> ApplyCoupon([FromBody] ApplyCouponRequest request)
+    public async Task<IActionResult> ApplyCoupon(
+        [FromBody] ApplyCouponRequest request,
+        [FromQuery] string? shippingCountry = null)
     {
         var validationResult = await _applyCouponValidator.ValidateAsync(request);
         if (!validationResult.IsValid)
@@ -162,7 +164,10 @@ public class CartController : ControllerBase
 
         try
         {
-            var cart = await _cartService.ApplyCouponAsync(Guid.Parse(userId), request.CouponCode);
+            var cart = await _cartService.ApplyCouponAsync(
+                Guid.Parse(userId),
+                request.CouponCode,
+                shippingCountry);
             return Ok(MapToResponse(cart));
         }
         catch (Exception ex)
@@ -212,6 +217,7 @@ public class CartController : ControllerBase
             }).ToList(),
             Subtotal = cart.Subtotal,
             Tax = cart.Tax,
+            Shipping = cart.Shipping,
             Discount = cart.Discount,
             Total = cart.Total,
             AppliedCoupon = cart.AppliedCoupon != null ? new CouponInfo

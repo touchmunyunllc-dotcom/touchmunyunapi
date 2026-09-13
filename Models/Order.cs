@@ -30,6 +30,14 @@ public class Order
     public string? TrackingUrl { get; set; }
     public string? Notes { get; set; }
     public string? CancellationReason { get; set; }
+    public decimal? ShippingLatitude { get; set; }
+    public decimal? ShippingLongitude { get; set; }
+    public decimal? CheckoutLatitude { get; set; }
+    public decimal? CheckoutLongitude { get; set; }
+    public DateTime? CheckoutLocationAt { get; set; }
+    public DateTime? ShippingGeocodedAt { get; set; }
+    public decimal? LocationDistanceKm { get; set; }
+    public bool LocationMismatchFlag { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public List<OrderItem> OrderItems { get; set; } = new();

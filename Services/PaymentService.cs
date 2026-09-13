@@ -16,6 +16,7 @@ public class PaymentService : IPaymentService
     private readonly IAdminNotificationService _adminNotificationService;
     private readonly IEmailService _emailService;
     private readonly IStripeCheckoutFulfillmentService _stripeCheckoutFulfillment;
+    private readonly IOrderLocationService _orderLocationService;
     private readonly ILogger<PaymentService> _logger;
 
     public PaymentService(
@@ -26,6 +27,7 @@ public class PaymentService : IPaymentService
         IAdminNotificationService adminNotificationService,
         IEmailService emailService,
         IStripeCheckoutFulfillmentService stripeCheckoutFulfillment,
+        IOrderLocationService orderLocationService,
         ILogger<PaymentService> logger)
     {
         _connection = connection;
@@ -35,6 +37,7 @@ public class PaymentService : IPaymentService
         _adminNotificationService = adminNotificationService;
         _emailService = emailService;
         _stripeCheckoutFulfillment = stripeCheckoutFulfillment;
+        _orderLocationService = orderLocationService;
         _logger = logger;
     }
 
@@ -49,11 +52,17 @@ public class PaymentService : IPaymentService
             _connection.Open();
         }
 
-        var cart = await _cartService.GetCartAsync(userId, couponCode);
+        var shippingCountry = await ResolveShippingCountryForUserAsync(userId, shippingAddressId);
+        var cart = await _cartService.GetCartAsync(userId, couponCode, shippingCountry);
 
         if (cart.Items.Count == 0)
         {
             throw new CartValidationException("Cart is empty");
+        }
+
+        if (shippingAddressId.HasValue && string.IsNullOrWhiteSpace(shippingCountry))
+        {
+            throw new CartValidationException("Shipping address not found.");
         }
 
         const int MAX_QUANTITY_PER_PRODUCT = 10;
@@ -94,9 +103,13 @@ public class PaymentService : IPaymentService
         decimal amount,
         string currency,
         string? couponCode = null,
-        Guid? shippingAddressId = null)
+        Guid? shippingAddressId = null,
+        decimal? checkoutLatitude = null,
+        decimal? checkoutLongitude = null)
     {
         var payload = await BuildRegisteredCheckoutPayloadAsync(userId, couponCode, shippingAddressId, currency);
+        payload.CheckoutLatitude = checkoutLatitude;
+        payload.CheckoutLongitude = checkoutLongitude;
 
         if (Math.Abs(amount - payload.TotalAmount) > 0.01m)
         {
@@ -119,7 +132,9 @@ public class PaymentService : IPaymentService
         decimal amount,
         string currency,
         string? couponCode = null,
-        Guid? shippingAddressId = null)
+        Guid? shippingAddressId = null,
+        decimal? checkoutLatitude = null,
+        decimal? checkoutLongitude = null)
     {
         // Ensure connection is open
         if (_connection.State != ConnectionState.Open)
@@ -151,12 +166,17 @@ public class PaymentService : IPaymentService
               FROM users WHERE id = @UserId",
             new { UserId = userId });
 
-        // Get cart and verify total
-        var cart = await _cartService.GetCartAsync(userId, couponCode);
-        
+        var shippingCountry = await ResolveShippingCountryForUserAsync(userId, shippingAddressId);
+        var cart = await _cartService.GetCartAsync(userId, couponCode, shippingCountry);
+
         if (cart.Items.Count == 0)
         {
             throw new CartValidationException("Cart is empty");
+        }
+
+        if (shippingAddressId.HasValue && string.IsNullOrWhiteSpace(shippingCountry))
+        {
+            throw new CartValidationException("Shipping address not found.");
         }
 
         // Verify the amount matches cart total
@@ -290,10 +310,17 @@ public class PaymentService : IPaymentService
                     payment.CreatedAt
                 }, transaction);
 
+            await _orderLocationService.SaveCheckoutCoordinatesAsync(
+                orderId,
+                checkoutLatitude,
+                checkoutLongitude,
+                transaction);
+
             // Clear cart
             await _cartService.ClearCartAsync(userId);
 
             transaction.Commit();
+            _orderLocationService.ScheduleShippingGeocodeForOrder(orderId, shippingAddressId);
         }
         catch
         {
@@ -309,14 +336,34 @@ public class PaymentService : IPaymentService
                 var orderItems = cart.Items.Select(item => new OrderItemInfo(
                     item.Product?.Name ?? "Product",
                     item.Quantity,
-                    item.Product?.Price ?? 0
+                    item.Product != null
+                        ? ProductPricingRules.ResolveUnitPrice(item.Product, item.SelectedColor)
+                        : 0
                 )).ToList();
-                
+
+                var shippingAddress = await LoadFormattedShippingAddressAsync(shippingAddressId);
+
                 await _emailService.SendOrderConfirmationAsync(
                     user.Email,
                     orderCode,
                     order.TotalAmount,
-                    orderItems);
+                    orderItems,
+                    new OrderConfirmationExtras(
+                        CustomerName: (string?)user.Name,
+                        ShippingAddress: shippingAddress,
+                        PaymentMethod: "Cash on delivery"));
+
+                await _adminNotificationService.NotifyNewOrderAsync(
+                    new AdminNewOrderAlert(
+                        orderCode,
+                        order.TotalAmount,
+                        cart.Items.Count,
+                        OrderStatus.Pending.ToString(),
+                        (string?)user.Name,
+                        (string?)user.Email,
+                        shippingAddress,
+                        "Cash on delivery",
+                        IsGuest: false));
             }
         }
         catch (Exception ex)
@@ -328,6 +375,44 @@ public class PaymentService : IPaymentService
             orderCode,
             orderId,
             "Order placed successfully. Payment will be collected on delivery.");
+    }
+
+    private async Task<string?> ResolveShippingCountryForUserAsync(Guid userId, Guid? shippingAddressId)
+    {
+        if (!shippingAddressId.HasValue)
+        {
+            return null;
+        }
+
+        return await _connection.QueryFirstOrDefaultAsync<string>(
+            @"SELECT country FROM addresses WHERE id = @Id AND user_id = @UserId",
+            new { Id = shippingAddressId.Value, UserId = userId });
+    }
+
+    private async Task<string?> LoadFormattedShippingAddressAsync(Guid? shippingAddressId)
+    {
+        if (!shippingAddressId.HasValue)
+        {
+            return null;
+        }
+
+        var row = await _connection.QueryFirstOrDefaultAsync(
+            @"SELECT address_line1, address_line2, city, state, postal_code, country
+              FROM addresses WHERE id = @Id",
+            new { Id = shippingAddressId.Value });
+
+        if (row == null)
+        {
+            return null;
+        }
+
+        return ShippingAddressFormatter.Format(
+            (string?)row.address_line1,
+            (string?)row.address_line2,
+            (string?)row.city,
+            (string?)row.state,
+            (string?)row.postal_code,
+            (string?)row.country);
     }
 }
 

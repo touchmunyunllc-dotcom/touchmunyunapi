@@ -1,6 +1,7 @@
 using ECommerce.DTOs;
 using ECommerce.Models;
 using ECommerce.Services;
+using ECommerce.Utils;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -101,7 +102,7 @@ public class AdminController : ControllerBase
 
             // Send email and SMS notifications (handle both guest and customer)
             var email = existingOrder.UserEmail;
-            var orderCode = existingOrder.OrderCode ?? existingOrder.Id.ToString();
+            var orderCode = OrderCodeRules.Display(existingOrder.OrderCode);
             
             if (!string.IsNullOrEmpty(email))
             {
@@ -248,26 +249,15 @@ public class AdminController : ControllerBase
 
         // Send tracking notification
         var email = existingOrder.UserEmail;
-        var orderCode = existingOrder.OrderCode ?? existingOrder.Id.ToString();
-        
+        var orderCode = OrderCodeRules.Display(existingOrder.OrderCode);
+
         if (!string.IsNullOrEmpty(email))
         {
-            var trackingMessage = $"Your order {orderCode} tracking number: {request.TrackingNumber}";
-            if (!string.IsNullOrEmpty(request.TrackingUrl))
-            {
-                trackingMessage += $"\nTrack here: {request.TrackingUrl}";
-            }
-
-            await _emailService.SendEmailAsync(
+            await _emailService.SendTrackingUpdateAsync(
                 email,
-                $"Tracking Information - Order {orderCode}",
-                trackingMessage,
-                $@"
-                    <h2>Your Order is Being Tracked</h2>
-                    <p>Order Code: <strong>{orderCode}</strong></p>
-                    <p>Tracking Number: <strong>{request.TrackingNumber}</strong></p>
-                    {(string.IsNullOrEmpty(request.TrackingUrl) ? "" : $@"<p><a href=""{request.TrackingUrl}"">Track Your Package</a></p>")}
-                ");
+                orderCode,
+                request.TrackingNumber,
+                request.TrackingUrl);
 
             await _smsService.SendSMSAsync(
                 existingOrder.UserPhoneNumber ?? email,

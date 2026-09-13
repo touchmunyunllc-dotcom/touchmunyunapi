@@ -1,6 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 
+using ECommerce.Utils;
+
 namespace ECommerce.Services;
 
 public class SMSService : ISMSService
@@ -82,13 +84,14 @@ public class SMSService : ISMSService
         await SendSMSAsync(to, message);
     }
 
-    public async Task SendOrderConfirmationAsync(string to, string orderId, decimal total)
+    public async Task SendOrderConfirmationAsync(string to, string orderCode, decimal total)
     {
-        var message = $"Order Confirmed! Order #{orderId.Substring(0, 8)} - Total: ${total:F2}. Thank you for your purchase!";
+        var code = OrderCodeRules.Display(orderCode);
+        var message = $"Order confirmed! {code} — Total ${total:F2}. Thank you from Touch Munyun!";
         await SendSMSAsync(to, message);
     }
 
-    public async Task SendOrderStatusUpdateAsync(string to, string orderId, string status)
+    public async Task SendOrderStatusUpdateAsync(string to, string orderCode, string status)
     {
         var statusMessages = new Dictionary<string, string>
         {
@@ -103,13 +106,15 @@ public class SMSService : ISMSService
             ? statusMessages[status] 
             : "Your order #{0} status has been updated to {1}.";
 
-        var message = string.Format(messageTemplate, orderId.Substring(0, 8), status);
+        var code = OrderCodeRules.Display(orderCode);
+        var message = string.Format(messageTemplate, code, status);
         await SendSMSAsync(to, message);
     }
 
-    public async Task SendOrderNotificationAsync(string to, string orderId)
+    public async Task SendOrderNotificationAsync(string to, string orderCode)
     {
-        var message = $"Your order #{orderId.Substring(0, 8)} has been confirmed and is being processed. Thank you!";
+        var code = OrderCodeRules.Display(orderCode);
+        var message = $"Your order {code} is confirmed and being processed. Thank you!";
         await SendSMSAsync(to, message);
     }
 }

@@ -37,6 +37,12 @@ public sealed class StripeCheckoutPendingPayload
     [JsonPropertyName("guestAddress")]
     public GuestPendingAddress? GuestAddress { get; set; }
 
+    [JsonPropertyName("checkoutLatitude")]
+    public decimal? CheckoutLatitude { get; set; }
+
+    [JsonPropertyName("checkoutLongitude")]
+    public decimal? CheckoutLongitude { get; set; }
+
     [JsonPropertyName("items")]
     public List<PendingCheckoutLineItem> Items { get; set; } = new();
 }
@@ -60,6 +66,9 @@ public sealed class GuestPendingAddress
 
     [JsonPropertyName("country")]
     public string Country { get; set; } = string.Empty;
+
+    [JsonPropertyName("phone")]
+    public string? Phone { get; set; }
 }
 
 public sealed class PendingCheckoutLineItem

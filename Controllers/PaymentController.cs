@@ -91,12 +91,19 @@ public class PaymentsController : ControllerBase
 
         try
         {
+            if (!GeoCoordinates.TryValidate(request.CheckoutLatitude, request.CheckoutLongitude, out var geoError))
+            {
+                return BadRequest(new { message = geoError });
+            }
+
             var result = await _paymentService.CreateCodOrderAsync(
                 Guid.Parse(userId),
                 request.Amount,
                 request.Currency,
                 request.CouponCode,
-                request.ShippingAddressId);
+                request.ShippingAddressId,
+                request.CheckoutLatitude,
+                request.CheckoutLongitude);
 
             return Ok(new CodOrderResponse(
                 result.OrderCode,
@@ -130,12 +137,19 @@ public class PaymentsController : ControllerBase
 
         try
         {
+            if (!GeoCoordinates.TryValidate(request.CheckoutLatitude, request.CheckoutLongitude, out var geoError))
+            {
+                return BadRequest(new { message = geoError });
+            }
+
             var result = await _paymentService.CreatePaymentIntentWithOrderAsync(
                 Guid.Parse(userId),
                 request.Amount,
                 request.Currency,
                 request.CouponCode,
-                request.ShippingAddressId);
+                request.ShippingAddressId,
+                request.CheckoutLatitude,
+                request.CheckoutLongitude);
 
             return Ok(new PaymentIntentResponse(
                 result.ClientSecret,
@@ -274,11 +288,18 @@ public class PaymentsController : ControllerBase
         {
             var uid = Guid.Parse(userId);
             var currency = string.IsNullOrWhiteSpace(request.Currency) ? "usd" : request.Currency!.Trim().ToLowerInvariant();
+            if (!GeoCoordinates.TryValidate(request.CheckoutLatitude, request.CheckoutLongitude, out var geoError))
+            {
+                return BadRequest(new { message = geoError });
+            }
+
             var payload = await _paymentService.BuildRegisteredCheckoutPayloadAsync(
                 uid,
                 request.CouponCode,
                 request.ShippingAddressId,
                 currency);
+            payload.CheckoutLatitude = request.CheckoutLatitude;
+            payload.CheckoutLongitude = request.CheckoutLongitude;
 
             var result = await _stripeService.CreateCheckoutSessionForTotalAsync(
                 payload.TotalAmount,
@@ -500,10 +521,9 @@ public class PaymentsController : ControllerBase
                                 var email = order.email ?? order.guest_email;
                                 if (!string.IsNullOrEmpty(email))
                                 {
-                                    await _emailService.SendEmailAsync(
+                                    await _emailService.SendPaymentFailedCustomerAsync(
                                         email,
-                                        "Payment Failed - Order Update",
-                                        $"Your payment for order {order.order_code} has failed. Please try again or contact support.");
+                                        order.order_code);
                                 }
                             }
                             catch (Exception notifyEx)
@@ -590,9 +610,12 @@ public class PaymentsController : ControllerBase
         try
         {
             var order = await _connection.QueryFirstOrDefaultAsync(
-                @"SELECT o.*, u.email, u.name, u.phone_number, o.guest_email, o.order_code
+                @"SELECT o.*, u.email, u.name, u.phone_number, o.guest_email, o.guest_name, o.order_code,
+                         sa.phone AS shipping_phone,
+                         sa.address_line1, sa.address_line2, sa.city, sa.state, sa.postal_code, sa.country
                   FROM orders o 
                   LEFT JOIN users u ON o.user_id = u.id 
+                  LEFT JOIN addresses sa ON o.shipping_address_id = sa.id
                   WHERE o.id = @OrderId",
                 new { OrderId = orderId });
 
@@ -617,28 +640,48 @@ public class PaymentsController : ControllerBase
             var email = order.email ?? order.guest_email;
             if (!string.IsNullOrEmpty(email))
             {
+                var shippingAddress = ShippingAddressFormatter.Format(
+                    (string?)order.address_line1,
+                    (string?)order.address_line2,
+                    (string?)order.city,
+                    (string?)order.state,
+                    (string?)order.postal_code,
+                    (string?)order.country);
+
+                var paymentMethod = await _connection.QueryFirstOrDefaultAsync<string>(
+                    @"SELECT payment_method FROM payments WHERE order_id = @OrderId ORDER BY created_at DESC LIMIT 1",
+                    new { OrderId = orderId });
+
+                var customerName = (string?)order.name ?? (string?)order.guest_name;
+
+                var orderCode = OrderCodeRules.Display((string?)order.order_code);
+
                 await _emailService.SendOrderConfirmationAsync(
                     email,
-                    order.order_code ?? order.id.ToString(),
+                    orderCode,
                     order.total_amount,
-                    items);
+                    items,
+                    new OrderConfirmationExtras(
+                        CustomerName: customerName,
+                        ShippingAddress: shippingAddress,
+                        PaymentMethod: string.IsNullOrWhiteSpace(paymentMethod) ? "Card" : paymentMethod));
 
                 await _emailService.SendPaymentReceiptAsync(
                     email,
-                    order.order_code ?? order.id.ToString(),
+                    orderCode,
                     paymentIntentId,
                     order.total_amount,
                     DateTime.UtcNow);
 
-                var smsRecipient = (string?)order.phone_number ?? email;
+                var smsRecipient = (string?)order.phone_number ?? (string?)order.shipping_phone ?? email;
                 await _smsService.SendOrderConfirmationAsync(
                     smsRecipient,
-                    order.order_code ?? order.id.ToString(),
+                    orderCode,
                     order.total_amount);
 
                 await _smsService.SendOrderStatusUpdateAsync(
                     smsRecipient,
-                    order.order_code ?? order.id.ToString(),
+                    orderCode,
                     "Paid");
             }
         }

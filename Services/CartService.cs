@@ -171,7 +171,7 @@ public class CartService : ICartService
         return affected > 0;
     }
 
-    public async Task<CartSummary> GetCartAsync(Guid userId, string? couponCode = null)
+    public async Task<CartSummary> GetCartAsync(Guid userId, string? couponCode = null, string? shippingCountry = null)
     {
         var items = await _connection.QueryAsync<CartItem>(
             $@"SELECT {CART_ITEM_SELECT}
@@ -238,7 +238,12 @@ public class CartService : ICartService
             }
         }
 
-        summary.Total = summary.Subtotal - summary.Discount + summary.Tax;
+        if (!string.IsNullOrWhiteSpace(shippingCountry))
+        {
+            summary.Shipping = await CalculateShippingAsync(shippingCountry);
+        }
+
+        summary.Total = summary.Subtotal - summary.Discount + summary.Tax + summary.Shipping;
         return summary;
     }
 
@@ -271,9 +276,9 @@ public class CartService : ICartService
         return affected >= 0;
     }
 
-    public async Task<CartSummary> ApplyCouponAsync(Guid userId, string couponCode)
+    public async Task<CartSummary> ApplyCouponAsync(Guid userId, string couponCode, string? shippingCountry = null)
     {
-        return await GetCartAsync(userId, couponCode);
+        return await GetCartAsync(userId, couponCode, shippingCountry);
     }
 
     public async Task<decimal> CalculateTaxAsync(decimal subtotal)
@@ -281,4 +286,7 @@ public class CartService : ICartService
         var rate = await _storeSettings.GetSalesTaxRateAsync();
         return Math.Round(subtotal * rate, 2, MidpointRounding.AwayFromZero);
     }
+
+    public Task<decimal> CalculateShippingAsync(string shippingCountry) =>
+        _storeSettings.GetShippingAmountForCountryAsync(shippingCountry);
 }
