@@ -41,6 +41,15 @@ public class RecaptchaService : IRecaptchaService
 
         if (string.IsNullOrEmpty(token))
         {
+            if (_environment.IsDevelopment())
+            {
+                Log.Warning(
+                    "[SECURITY] reCAPTCHA token missing for action {Action} — allowed in Development. " +
+                    "Set NEXT_PUBLIC_RECAPTCHA_SITE_KEY on the Next.js app (must match Recaptcha:SiteKey).",
+                    action);
+                return true;
+            }
+
             Log.Warning("[SECURITY] reCAPTCHA token missing for action {Action}", action);
             return false;
         }

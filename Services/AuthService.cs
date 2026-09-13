@@ -135,43 +135,93 @@ public class AuthService : IAuthService
   public async Task<(bool Success, User? User, string? Token, string? ErrorMessage)> LoginAsync(
       string email, string password)
   {
-    // Brute-force protection: track failed login attempts per email (OWASP A07)
-    var loginAttemptKey = $"login_attempts:{email.ToLower()}";
-    var attemptCountStr = await _redisService.GetAsync<string>(loginAttemptKey);
-    var attemptCount = int.TryParse(attemptCountStr, out var count) ? count : 0;
+    email = email.Trim().ToLowerInvariant();
 
-    if (attemptCount >= 5)
+    var attemptCount = 0;
+    var loginAttemptKey = $"login_attempts:{email}";
+    try
     {
-      Log.Warning("Login blocked due to too many failed attempts for {Email}", email);
-      return (false, null, null, "Too many failed login attempts. Please try again in 15 minutes.");
+      var attemptCountStr = await _redisService.GetAsync<string>(loginAttemptKey);
+      attemptCount = int.TryParse(attemptCountStr, out var count) ? count : 0;
+
+      if (attemptCount >= 5)
+      {
+        Log.Warning("Login blocked due to too many failed attempts for {Email}", email);
+        return (false, null, null, "Too many failed login attempts. Please try again in 15 minutes.");
+      }
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Login rate-limit check skipped (Redis unavailable)");
     }
 
     var user = await GetUserByEmailAsync(email);
     if (user == null)
     {
-      await _redisService.SetAsync(loginAttemptKey, (attemptCount + 1).ToString(), TimeSpan.FromMinutes(15));
+      await RecordFailedLoginAttemptAsync(loginAttemptKey, attemptCount);
       Log.Warning("Failed login attempt for non-existent email {Email}", email);
       return (false, null, null, "Invalid email or password");
+    }
+
+    if (IsSocialOnlyAccount(user))
+    {
+      return (false, null, null,
+          "This account was created with social sign-in and has no password. Use Forgot password to set one, or contact support.");
     }
 
     var isPasswordValid = await VerifyPasswordAsync(password, user.PasswordHash);
     if (!isPasswordValid)
     {
-      await _redisService.SetAsync(loginAttemptKey, (attemptCount + 1).ToString(), TimeSpan.FromMinutes(15));
+      await RecordFailedLoginAttemptAsync(loginAttemptKey, attemptCount);
       Log.Warning("Failed login attempt for {Email} (attempt {AttemptCount})", email, attemptCount + 1);
       return (false, null, null, "Invalid email or password");
     }
 
-    // Clear failed attempts on successful login
-    await _redisService.DeleteAsync(loginAttemptKey);
+    try
+    {
+      await _redisService.DeleteAsync(loginAttemptKey);
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Could not clear login attempt counter for {Email}", email);
+    }
 
     var token = await GenerateJwtTokenAsync(user);
 
-    // Store session in Redis
-    var sessionKey = $"session:{user.Id}";
-    await _redisService.SetAsync(sessionKey, token, TimeSpan.FromHours(24));
+    try
+    {
+      var sessionKey = $"session:{user.Id}";
+      await _redisService.SetAsync(sessionKey, token, TimeSpan.FromHours(24));
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Session cache skipped for {Email} (Redis unavailable)", email);
+    }
 
     return (true, user, token, null);
+  }
+
+  private static bool IsSocialOnlyAccount(User user)
+  {
+    if (string.IsNullOrWhiteSpace(user.PasswordHash))
+    {
+      return !string.IsNullOrWhiteSpace(user.Provider);
+    }
+
+    return !string.IsNullOrWhiteSpace(user.Provider)
+           && user.PasswordHash.Length < 20;
+  }
+
+  private async Task RecordFailedLoginAttemptAsync(string loginAttemptKey, int attemptCount)
+  {
+    try
+    {
+      await _redisService.SetAsync(loginAttemptKey, (attemptCount + 1).ToString(), TimeSpan.FromMinutes(15));
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Could not record failed login attempt");
+    }
   }
 
   public async Task<User?> GetUserByIdAsync(Guid userId)

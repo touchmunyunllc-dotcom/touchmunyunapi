@@ -85,7 +85,11 @@ public class GuestController : ControllerBase
         var captchaValid = await _recaptchaService.VerifyAsync(request.CaptchaToken, "guest_checkout", clientIp);
         if (!captchaValid)
         {
-            return BadRequest(new { message = "CAPTCHA verification failed. Please try again." });
+            return BadRequest(new
+            {
+                message = "CAPTCHA verification failed. Please try again.",
+                hint = "Ensure the storefront has NEXT_PUBLIC_RECAPTCHA_SITE_KEY set and localhost/your domain is allowed in Google reCAPTCHA admin.",
+            });
         }
 
         try

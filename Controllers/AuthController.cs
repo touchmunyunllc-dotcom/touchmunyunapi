@@ -101,14 +101,19 @@ public class AuthController : ControllerBase
     [ProducesResponseType(401)]
     public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
-        var validationResult = await _loginValidator.ValidateAsync(request);
+        var normalized = request with
+        {
+            Email = request.Email.Trim().ToLowerInvariant(),
+        };
+
+        var validationResult = await _loginValidator.ValidateAsync(normalized);
         if (!validationResult.IsValid)
         {
             return BadRequest(validationResult.Errors);
         }
 
         var (success, user, token, errorMessage) = await _authService.LoginAsync(
-            request.Email, request.Password);
+            normalized.Email, request.Password);
 
         if (!success || user == null || token == null)
         {

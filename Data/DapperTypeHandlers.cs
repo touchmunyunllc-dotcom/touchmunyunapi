@@ -28,7 +28,8 @@ public class UserRoleTypeHandler : SqlMapper.TypeHandler<UserRole>
 
     public override UserRole Parse(object value)
     {
-        return Enum.Parse<UserRole>(value.ToString() ?? "Customer");
+        var text = value.ToString() ?? "Customer";
+        return Enum.Parse<UserRole>(text, ignoreCase: true);
     }
 }
 
