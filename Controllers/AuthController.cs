@@ -49,6 +49,7 @@ public class AuthController : ControllerBase
         _environment = environment;
     }
 
+    [AllowAnonymous]
     [HttpPost("register")]
     [ProducesResponseType(typeof(AuthResponse), 200)]
     [ProducesResponseType(400)]
@@ -96,6 +97,7 @@ public class AuthController : ControllerBase
         });
     }
 
+    [AllowAnonymous]
     [HttpPost("login")]
     [ProducesResponseType(typeof(AuthResponse), 200)]
     [ProducesResponseType(401)]

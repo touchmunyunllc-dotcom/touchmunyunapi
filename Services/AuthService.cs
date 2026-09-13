@@ -169,6 +169,12 @@ public class AuthService : IAuthService
           "This account was created with social sign-in and has no password. Use Forgot password to set one, or contact support.");
     }
 
+    if (string.IsNullOrWhiteSpace(user.PasswordHash))
+    {
+      return (false, null, null,
+          "No password is set for this account. Use Forgot password to create one.");
+    }
+
     var isPasswordValid = await VerifyPasswordAsync(password, user.PasswordHash);
     if (!isPasswordValid)
     {
@@ -260,8 +266,8 @@ public class AuthService : IAuthService
             provider_id AS ProviderId,
             created_at AS CreatedAt,
             updated_at AS UpdatedAt
-          FROM users WHERE email = @Email",
-        new { Email = email.ToLower() });
+          FROM users WHERE LOWER(TRIM(email)) = @Email",
+        new { Email = email.Trim().ToLowerInvariant() });
   }
 
   public async Task<User?> GetUserByProviderAsync(string provider, string providerId)

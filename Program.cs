@@ -512,6 +512,8 @@ static string[] GetAllowedCorsOrigins(string? configuredOrigins)
 
     origins.Add("http://localhost:3000");
     origins.Add("https://touchmunyunui.vercel.app");
+    origins.Add("https://touchmunyun.com");
+    origins.Add("https://www.touchmunyun.com");
 
     return origins
         .Where(origin => Uri.TryCreate(origin, UriKind.Absolute, out _))
