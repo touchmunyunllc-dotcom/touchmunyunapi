@@ -31,8 +31,8 @@ public class ImageService : IImageService
     {
         if (_cloudinary == null)
         {
-            // Return placeholder URL if Cloudinary is not configured
-            return "https://via.placeholder.com/300";
+            throw new InvalidOperationException(
+                "Image storage is not configured. Set Cloudinary:CloudName, ApiKey, and ApiSecret on the API.");
         }
 
         try
@@ -40,27 +40,30 @@ public class ImageService : IImageService
             var uploadParams = new ImageUploadParams
             {
                 File = new FileDescription(fileName, imageStream),
-                Folder = "ecommerce/products",
-                // CDN Optimization Settings
-                Transformation = new Transformation()
-                    .Quality("auto") // Auto quality optimization
-                    .FetchFormat("auto") // Auto format (WebP when supported)
-                    .Width(800) // Limit width for performance
-                    .Height(800) // Limit height for performance
-                    .Crop("limit"), // Maintain aspect ratio
-                // Enable CDN caching
-                Overwrite = false,
-                // Add cache control headers
-                Context = new StringDictionary
-                {
-                    { "cache-control", "public, max-age=31536000" } // Cache for 1 year
-                }
+                Folder = "touchmunyun/products",
+                Overwrite = true,
             };
 
             var uploadResult = await _cloudinary.UploadAsync(uploadParams);
-            
-            // Return optimized CDN URL
+
+            if (uploadResult.Error != null)
+            {
+                var detail = string.IsNullOrWhiteSpace(uploadResult.Error.Message)
+                    ? "Cloudinary rejected the upload."
+                    : uploadResult.Error.Message;
+                throw new InvalidOperationException(detail);
+            }
+
+            if (uploadResult.SecureUrl == null || string.IsNullOrWhiteSpace(uploadResult.SecureUrl.ToString()))
+            {
+                throw new InvalidOperationException("Cloudinary did not return an image URL.");
+            }
+
             return uploadResult.SecureUrl.ToString();
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
         }
         catch (Exception ex)
         {

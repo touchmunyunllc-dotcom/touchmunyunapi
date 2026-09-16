@@ -13,8 +13,12 @@ public class ImagesController : ControllerBase
     private static readonly HashSet<string> AllowedContentTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         "image/jpeg",
+        "image/jpg",
+        "image/pjpeg",
         "image/png",
-        "image/webp"
+        "image/x-png",
+        "image/webp",
+        "application/octet-stream",
     };
 
     private readonly IImageService _imageService;
@@ -43,44 +47,61 @@ public class ImagesController : ControllerBase
             return BadRequest(new { message = "File size exceeds the 5MB limit." });
         }
 
-        if (!AllowedContentTypes.Contains(file.ContentType))
+        if (!IsAllowedUpload(file))
         {
-            return BadRequest(new { message = "Unsupported image type." });
+            return BadRequest(new { message = "Unsupported image type. Use JPEG, PNG, or WebP (max 5MB)." });
         }
 
         try
         {
             await using var stream = file.OpenReadStream();
-            if (!await IsSupportedImageAsync(stream))
+            await using var buffer = new MemoryStream();
+            await stream.CopyToAsync(buffer);
+            buffer.Position = 0;
+
+            if (!await IsSupportedImageAsync(buffer))
             {
-                return BadRequest(new { message = "Invalid image file." });
+                return BadRequest(new { message = "Invalid image file. Use JPEG, PNG, or WebP." });
             }
 
-            if (stream.CanSeek)
-            {
-                stream.Position = 0;
-            }
-
-            var url = await _imageService.UploadImageAsync(stream, file.FileName);
+            buffer.Position = 0;
+            var url = await _imageService.UploadImageAsync(buffer, file.FileName);
             return Ok(new { url });
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Image upload rejected by storage");
+            return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Image upload failed");
-            return BadRequest(new { message = "Image upload failed." });
+            return BadRequest(new { message = "Image upload failed. Check Cloudinary settings on the API." });
         }
+    }
+
+    private static bool IsAllowedUpload(IFormFile file)
+    {
+        if (AllowedContentTypes.Contains(file.ContentType))
+        {
+            return true;
+        }
+
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        return ext is ".jpg" or ".jpeg" or ".png" or ".webp";
     }
 
     private static async Task<bool> IsSupportedImageAsync(Stream stream)
     {
         var header = new byte[12];
-        var read = await stream.ReadAsync(header, 0, header.Length);
-        if (read < 12)
+        var read = await stream.ReadAsync(header.AsMemory(0, header.Length));
+        if (read < 3)
         {
             return false;
         }
 
-        return IsJpeg(header) || IsPng(header) || IsWebp(header);
+        var isWebp = read >= 12 && IsWebp(header);
+        return IsJpeg(header) || IsPng(header) || isWebp;
     }
 
     private static bool IsJpeg(IReadOnlyList<byte> header)
