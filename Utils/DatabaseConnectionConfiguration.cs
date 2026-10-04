@@ -12,21 +12,7 @@ public static class DatabaseConnectionConfiguration
         var fromConfig = builder.Configuration.GetConnectionString("DefaultConnection");
         var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
 
-        string? resolved = null;
-        if (!string.IsNullOrWhiteSpace(databaseUrl))
-        {
-            resolved = ConvertDatabaseUrl(databaseUrl);
-        }
-        else if (!string.IsNullOrWhiteSpace(fromConfig))
-        {
-            resolved = fromConfig.Trim();
-            if (resolved.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) ||
-                resolved.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
-            {
-                resolved = ConvertDatabaseUrl(resolved);
-            }
-        }
-
+        var resolved = ResolveConnectionString(databaseUrl, fromConfig);
         if (string.IsNullOrWhiteSpace(resolved))
         {
             return;
@@ -52,12 +38,53 @@ public static class DatabaseConnectionConfiguration
             || host.Contains("supabase.co", StringComparison.OrdinalIgnoreCase);
     }
 
+    private static string? ResolveConnectionString(string? databaseUrl, string? fromConfig)
+    {
+        if (!string.IsNullOrWhiteSpace(databaseUrl))
+        {
+            var env = databaseUrl.Trim().Trim('"');
+            if (IsPostgresUri(env))
+            {
+                return ConvertDatabaseUrl(env);
+            }
+
+            if (LooksLikeNpgsqlConnectionString(env))
+            {
+                return env;
+            }
+
+            Console.WriteLine(
+                "WARNING: DATABASE_URL is not postgresql:// and not Npgsql key=value. " +
+                "Unset DATABASE_URL or use ConnectionStrings__DefaultConnection.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(fromConfig))
+        {
+            var config = fromConfig.Trim();
+            if (IsPostgresUri(config))
+            {
+                return ConvertDatabaseUrl(config);
+            }
+
+            return config;
+        }
+
+        return null;
+    }
+
+    private static bool IsPostgresUri(string value) =>
+        value.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) ||
+        value.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase);
+
+    private static bool LooksLikeNpgsqlConnectionString(string value) =>
+        value.Contains("Host=", StringComparison.OrdinalIgnoreCase) ||
+        value.Contains("Server=", StringComparison.OrdinalIgnoreCase);
+
     private static string NormalizeForManagedPostgres(string connectionString)
     {
         var builder = new NpgsqlConnectionStringBuilder(connectionString)
         {
             SslMode = SslMode.Require,
-            TrustServerCertificate = true,
             KeepAlive = 30,
             Timeout = 30,
             CommandTimeout = 60,
@@ -65,7 +92,6 @@ public static class DatabaseConnectionConfiguration
 
         if (IsManagedPostgresHost(builder.Host))
         {
-            // Neon pooler: avoid prepared statement issues on some pool modes
             builder.MaxPoolSize = Math.Max(builder.MaxPoolSize, 20);
         }
 
@@ -104,7 +130,6 @@ public static class DatabaseConnectionConfiguration
             Username = username,
             Password = password,
             SslMode = SslMode.Require,
-            TrustServerCertificate = true,
         };
 
         var query = uri.Query.TrimStart('?');

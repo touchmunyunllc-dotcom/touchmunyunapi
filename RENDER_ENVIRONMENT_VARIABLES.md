@@ -7,9 +7,9 @@ This API now supports Render-style environment variables directly.
 - `PORT`
   - Used to bind Kestrel to `http://0.0.0.0:$PORT`.
 - `DATABASE_URL`
-  - Supports Render PostgreSQL URL format like:
-  - `postgres://user:password@host:5432/database`
-  - Automatically converted to `ConnectionStrings:DefaultConnection`.
+  - Must be a **URI**: `postgresql://user:password@host:5432/database` (from Neon/Render).
+  - **Do not** put `Host=...;Database=...` Npgsql text in `DATABASE_URL` — use `ConnectionStrings__DefaultConnection` for that instead.
+  - If `DATABASE_URL` is invalid, the API falls back to `ConnectionStrings__DefaultConnection` (and logs a warning).
 - `REDIS_URL`
   - Supports `redis://` or `rediss://` and maps to `ConnectionStrings:Redis`.
 
