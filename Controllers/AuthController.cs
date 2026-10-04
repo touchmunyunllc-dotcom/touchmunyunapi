@@ -330,16 +330,17 @@ public class AuthController : ControllerBase
     [HttpGet("external/{provider}/callback")]
     public async Task<IActionResult> ExternalLoginCallback(string provider)
     {
+        var frontendUrl = ResolveFrontendUrl();
         var result = await HttpContext.AuthenticateAsync("Cookies");
         if (!result.Succeeded)
         {
-            return Redirect($"/login?error=external_login_failed");
+            return Redirect($"{frontendUrl}/login?error=external_login_failed");
         }
 
         var claims = result.Principal?.Claims.ToList();
         if (claims == null || !claims.Any())
         {
-            return Redirect($"/login?error=external_login_failed");
+            return Redirect($"{frontendUrl}/login?error=external_login_failed");
         }
 
         // Extract user information from claims
@@ -351,7 +352,7 @@ public class AuthController : ControllerBase
 
         if (string.IsNullOrEmpty(providerId) || string.IsNullOrEmpty(email))
         {
-            return Redirect($"/login?error=external_login_failed");
+            return Redirect($"{frontendUrl}/login?error=external_login_failed");
         }
 
         // Normalize provider name
@@ -367,7 +368,7 @@ public class AuthController : ControllerBase
 
         if (!success || user == null || token == null)
         {
-            return Redirect($"/login?error={Uri.EscapeDataString(errorMessage ?? "external_login_failed")}");
+            return Redirect($"{frontendUrl}/login?error={Uri.EscapeDataString(errorMessage ?? "external_login_failed")}");
         }
 
         // Sign out the cookie authentication
@@ -376,10 +377,6 @@ public class AuthController : ControllerBase
         var refreshToken = await _authService.GenerateRefreshTokenAsync(user);
         SetAuthCookies(token, refreshToken);
 
-        // Redirect to frontend without token (cookie-based auth)
-        var frontendUrl = Request.Headers["Origin"].ToString() 
-                         ?? _configuration["FrontendUrl"] 
-                         ?? "http://localhost:3000";
         return Redirect($"{frontendUrl}/auth/callback");
     }
 
@@ -399,6 +396,23 @@ public class AuthController : ControllerBase
         var options = BuildCookieOptions();
         Response.Cookies.Delete(AccessTokenCookie, options);
         Response.Cookies.Delete(RefreshTokenCookie, options);
+    }
+
+    private string ResolveFrontendUrl()
+    {
+        var origin = Request.Headers.Origin.FirstOrDefault();
+        if (!string.IsNullOrWhiteSpace(origin))
+        {
+            return origin.Trim().TrimEnd('/');
+        }
+
+        var configured = _configuration["FrontendUrl"];
+        if (!string.IsNullOrWhiteSpace(configured))
+        {
+            return configured.Trim().TrimEnd('/');
+        }
+
+        return "http://localhost:3000";
     }
 
     private CookieOptions BuildCookieOptions()

@@ -13,6 +13,7 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
+DatabaseConnectionConfiguration.Apply(builder);
 
 // Configure Sentry only when DSN is valid to avoid startup crash in hosted environments.
 var sentryDsn = builder.Configuration["Sentry:Dsn"];
@@ -454,17 +455,40 @@ app.MapControllers();
 // Initialize database, seed data, and perform startup tasks
 using (var scope = app.Services.CreateScope())
 {
+    var dbContext = scope.ServiceProvider.GetRequiredService<IDbContext>();
     var autoInit = builder.Configuration.GetValue("Database:AutoInitialize", app.Environment.IsDevelopment());
-    if (autoInit)
+    var runMigrationsOnStartup = builder.Configuration.GetValue(
+        "Database:RunMigrationsOnStartup",
+        !autoInit && app.Environment.IsProduction());
+
+    try
     {
-        var dbContext = scope.ServiceProvider.GetRequiredService<IDbContext>();
-        await dbContext.InitializeDatabaseAsync();
+        if (autoInit)
+        {
+            await dbContext.InitializeDatabaseAsync();
 
-        var countryService = scope.ServiceProvider.GetRequiredService<ICountryService>();
-        await countryService.SeedCountriesIfEmptyAsync();
+            var countryService = scope.ServiceProvider.GetRequiredService<ICountryService>();
+            await countryService.SeedCountriesIfEmptyAsync();
+        }
+        else if (runMigrationsOnStartup)
+        {
+            await dbContext.RunMigrationsOnlyAsync();
+        }
 
-        var productService = scope.ServiceProvider.GetRequiredService<IProductService>();
-        await productService.BackfillMissingSlugsAsync();
+        if (autoInit || runMigrationsOnStartup)
+        {
+            var productService = scope.ServiceProvider.GetRequiredService<IProductService>();
+            await productService.BackfillMissingSlugsAsync();
+        }
+    }
+    catch (NpgsqlException ex)
+    {
+        Log.Fatal(
+            ex,
+            "Database startup failed. On Render/Neon use DATABASE_URL or ConnectionStrings__DefaultConnection " +
+            "(Npgsql key=value or postgres:// URL), set Database__AutoInitialize=false, and keep " +
+            "Database__RunMigrationsOnStartup=true for schema patches.");
+        throw;
     }
 
     var seedData = builder.Configuration.GetValue("Database:SeedData", app.Environment.IsDevelopment());

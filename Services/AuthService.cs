@@ -175,6 +175,12 @@ public class AuthService : IAuthService
           "No password is set for this account. Use Forgot password to create one.");
     }
 
+    if (!IsBcryptPasswordHash(user.PasswordHash))
+    {
+      return (false, null, null,
+          "This account needs a new password (legacy import). Use Forgot password to set one.");
+    }
+
     var isPasswordValid = await VerifyPasswordAsync(password, user.PasswordHash);
     if (!isPasswordValid)
     {
@@ -216,6 +222,11 @@ public class AuthService : IAuthService
 
     return !string.IsNullOrWhiteSpace(user.Provider)
            && user.PasswordHash.Length < 20;
+  }
+
+  private static bool IsBcryptPasswordHash(string passwordHash)
+  {
+    return passwordHash.StartsWith("$2", StringComparison.Ordinal) && passwordHash.Length >= 59;
   }
 
   private async Task RecordFailedLoginAttemptAsync(string loginAttemptKey, int attemptCount)
@@ -419,17 +430,7 @@ public class AuthService : IAuthService
   {
     var token = GenerateSecureToken();
     var tokenHash = HashToken(token);
-
-    var userKey = $"refresh_token_user:{user.Id}";
-    var existingHash = await _redisService.GetAsync(userKey);
-    if (!string.IsNullOrEmpty(existingHash))
-    {
-      await _redisService.DeleteAsync($"refresh_token:{existingHash}");
-    }
-
-    await _redisService.SetAsync($"refresh_token:{tokenHash}", user.Id.ToString(), _refreshTokenTtl);
-    await _redisService.SetAsync(userKey, tokenHash, _refreshTokenTtl);
-
+    await SaveRefreshTokenDualAsync(tokenHash, user.Id);
     return token;
   }
 
@@ -441,27 +442,25 @@ public class AuthService : IAuthService
     }
 
     var tokenHash = HashToken(refreshToken);
-    var userIdString = await _redisService.GetAsync($"refresh_token:{tokenHash}");
-    if (string.IsNullOrWhiteSpace(userIdString) || !Guid.TryParse(userIdString, out var userId))
+    var userId = await ResolveUserIdFromRefreshTokenHashDualAsync(tokenHash);
+    if (userId == null)
     {
       return (false, null, null, "Invalid refresh token");
     }
 
-    var userKey = $"refresh_token_user:{userId}";
-    var currentHash = await _redisService.GetAsync(userKey);
-    if (!string.Equals(currentHash, tokenHash, StringComparison.Ordinal))
+    var activeHash = await GetActiveRefreshTokenHashForUserDualAsync(userId.Value);
+    if (string.IsNullOrEmpty(activeHash) || !string.Equals(activeHash, tokenHash, StringComparison.Ordinal))
     {
       return (false, null, null, "Refresh token has been rotated");
     }
 
-    var user = await GetUserByIdAsync(userId);
+    var user = await GetUserByIdAsync(userId.Value);
     if (user == null)
     {
       return (false, null, null, "User not found");
     }
 
-    await _redisService.DeleteAsync($"refresh_token:{tokenHash}");
-    await _redisService.DeleteAsync(userKey);
+    await ClearRefreshTokenDualAsync(userId.Value, tokenHash);
 
     var newAccessToken = await GenerateJwtTokenAsync(user);
     var newRefreshToken = await GenerateRefreshTokenAsync(user);
@@ -510,16 +509,6 @@ public class AuthService : IAuthService
       return true;
     }
 
-    // Invalidate any existing tokens for this user (only one active token at a time)
-    var userTokenKey = $"password_reset_user_token:{user.Id}";
-    var existingToken = await _redisService.GetAsync(userTokenKey);
-    if (!string.IsNullOrEmpty(existingToken))
-    {
-      // Delete the old token
-      var oldTokenKey = $"password_reset_token:{existingToken}";
-      await _redisService.DeleteAsync(oldTokenKey);
-    }
-
     // Generate secure random token
     var tokenBytes = new byte[32];
     using (var rng = RandomNumberGenerator.Create())
@@ -532,12 +521,7 @@ public class AuthService : IAuthService
         .Replace('/', '_')
         .Replace("=", "");
 
-    // Store token in Redis with 1 hour expiration
-    // Store both token->userId and userId->token for easy invalidation
-    var tokenKey = $"password_reset_token:{token}";
-
-    await _redisService.SetAsync(tokenKey, user.Id.ToString(), TimeSpan.FromHours(1));
-    await _redisService.SetAsync(userTokenKey, token, TimeSpan.FromHours(1));
+    await SavePasswordResetTokenDualAsync(token, user.Id);
 
     // Increment email rate limit counter
     await _redisService.SetAsync(emailRateLimitKey, (emailRequestCount + 1).ToString(), TimeSpan.FromHours(1));
@@ -554,33 +538,161 @@ public class AuthService : IAuthService
 
   public async Task<bool> VerifyPasswordResetAsync(string token, string newPassword)
   {
-    // Get user ID from token
-    var tokenKey = $"password_reset_token:{token}";
-    var userIdString = await _redisService.GetAsync<string>(tokenKey);
-
-    if (string.IsNullOrEmpty(userIdString) || !Guid.TryParse(userIdString, out var userId))
+    var userId = await ResolvePasswordResetUserIdDualAsync(token);
+    if (userId == null)
     {
       return false;
     }
 
-    var user = await GetUserByIdAsync(userId);
+    var user = await GetUserByIdAsync(userId.Value);
     if (user == null)
     {
       return false;
     }
 
-    // Update password
+    if (newPassword.Length < 6)
+    {
+      return false;
+    }
+
+    // Update password (also allows first-time password for imported / passwordless rows)
     var newPasswordHash = BCrypt.Net.BCrypt.HashPassword(newPassword);
     await _connection.ExecuteAsync(
         "UPDATE users SET password = @PasswordHash, updated_at = CURRENT_TIMESTAMP WHERE id = @Id",
         new { PasswordHash = newPasswordHash, Id = user.Id });
 
-    // Invalidate token and user token mapping
-    await _redisService.DeleteAsync(tokenKey);
-    var userTokenKey = $"password_reset_user_token:{user.Id}";
-    await _redisService.DeleteAsync(userTokenKey);
+    await ClearPasswordResetTokenDualAsync(token, user.Id);
 
     return true;
+  }
+
+  private static readonly TimeSpan PasswordResetTokenTtl = TimeSpan.FromHours(1);
+
+  private static string PasswordResetTokenRedisKey(string token) => $"password_reset_token:{token}";
+
+  private static string PasswordResetUserRedisKey(Guid userId) => $"password_reset_user_token:{userId}";
+
+  /// <summary>Writes reset token to Postgres and Redis (either can serve verify if the other is down).</summary>
+  private async Task SavePasswordResetTokenDualAsync(string token, Guid userId)
+  {
+    await ClearPasswordResetTokensForUserDualAsync(userId);
+
+    var expiresAtUtc = DateTime.UtcNow.Add(PasswordResetTokenTtl);
+    try
+    {
+      await _connection.ExecuteAsync(
+          @"INSERT INTO password_reset_tokens (token, user_id, expires_at)
+            VALUES (@Token, @UserId, @ExpiresAt)",
+          new { Token = token, UserId = userId, ExpiresAt = expiresAtUtc });
+    }
+    catch (Exception ex)
+    {
+      Log.Error(ex, "Failed to store password reset token in database for user {UserId}", userId);
+      throw;
+    }
+
+    try
+    {
+      var tokenKey = PasswordResetTokenRedisKey(token);
+      var userTokenKey = PasswordResetUserRedisKey(userId);
+      await _redisService.SetAsync(tokenKey, userId.ToString(), PasswordResetTokenTtl);
+      await _redisService.SetAsync(userTokenKey, token, PasswordResetTokenTtl);
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Password reset token stored in DB but Redis write failed for user {UserId}", userId);
+    }
+  }
+
+  /// <summary>Postgres first, then Redis — supports Render without Redis and dev with Redis-only legacy tokens.</summary>
+  private async Task<Guid?> ResolvePasswordResetUserIdDualAsync(string token)
+  {
+    Guid? userId = null;
+    try
+    {
+      userId = await _connection.QueryFirstOrDefaultAsync<Guid?>(
+          @"SELECT user_id FROM password_reset_tokens
+            WHERE token = @Token AND expires_at > CURRENT_TIMESTAMP",
+          new { Token = token });
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Password reset DB lookup failed; trying Redis");
+    }
+
+    if (userId != null)
+    {
+      return userId;
+    }
+
+    try
+    {
+      var userIdString = await _redisService.GetAsync<string>(PasswordResetTokenRedisKey(token));
+      if (!string.IsNullOrEmpty(userIdString) && Guid.TryParse(userIdString, out var redisUserId))
+      {
+        return redisUserId;
+      }
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Password reset Redis lookup failed");
+    }
+
+    return null;
+  }
+
+  private async Task ClearPasswordResetTokensForUserDualAsync(Guid userId)
+  {
+    try
+    {
+      await _connection.ExecuteAsync(
+          "DELETE FROM password_reset_tokens WHERE user_id = @UserId",
+          new { UserId = userId });
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Could not clear password reset tokens in DB for user {UserId}", userId);
+    }
+
+    try
+    {
+      var userTokenKey = PasswordResetUserRedisKey(userId);
+      var existingToken = await _redisService.GetAsync(userTokenKey);
+      if (!string.IsNullOrEmpty(existingToken))
+      {
+        await _redisService.DeleteAsync(PasswordResetTokenRedisKey(existingToken));
+      }
+
+      await _redisService.DeleteAsync(userTokenKey);
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Could not clear password reset tokens in Redis for user {UserId}", userId);
+    }
+  }
+
+  private async Task ClearPasswordResetTokenDualAsync(string token, Guid userId)
+  {
+    try
+    {
+      await _connection.ExecuteAsync(
+          "DELETE FROM password_reset_tokens WHERE token = @Token",
+          new { Token = token });
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Could not delete password reset token from DB");
+    }
+
+    try
+    {
+      await _redisService.DeleteAsync(PasswordResetTokenRedisKey(token));
+      await _redisService.DeleteAsync(PasswordResetUserRedisKey(userId));
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Could not delete password reset token from Redis");
+    }
   }
 
   public async Task<bool> LogoutAsync(Guid userId)
@@ -589,19 +701,172 @@ public class AuthService : IAuthService
     {
       var sessionKey = $"session:{userId}";
       await _redisService.DeleteAsync(sessionKey);
-
-      var userKey = $"refresh_token_user:{userId}";
-      var refreshHash = await _redisService.GetAsync(userKey);
-      if (!string.IsNullOrEmpty(refreshHash))
-      {
-        await _redisService.DeleteAsync($"refresh_token:{refreshHash}");
-        await _redisService.DeleteAsync(userKey);
-      }
+      await ClearRefreshTokensForUserDualAsync(userId);
       return true;
     }
     catch
     {
       return false;
+    }
+  }
+
+  private static string RefreshTokenRedisKey(string tokenHash) => $"refresh_token:{tokenHash}";
+
+  private static string RefreshUserRedisKey(Guid userId) => $"refresh_token_user:{userId}";
+
+  private async Task SaveRefreshTokenDualAsync(string tokenHash, Guid userId)
+  {
+    await ClearRefreshTokensForUserDualAsync(userId);
+
+    var expiresAtUtc = DateTime.UtcNow.Add(_refreshTokenTtl);
+    try
+    {
+      await _connection.ExecuteAsync(
+          @"INSERT INTO refresh_tokens (token_hash, user_id, expires_at)
+            VALUES (@TokenHash, @UserId, @ExpiresAt)",
+          new { TokenHash = tokenHash, UserId = userId, ExpiresAt = expiresAtUtc });
+    }
+    catch (Exception ex)
+    {
+      Log.Error(ex, "Failed to store refresh token in database for user {UserId}", userId);
+      throw;
+    }
+
+    try
+    {
+      await _redisService.SetAsync(RefreshTokenRedisKey(tokenHash), userId.ToString(), _refreshTokenTtl);
+      await _redisService.SetAsync(RefreshUserRedisKey(userId), tokenHash, _refreshTokenTtl);
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Refresh token stored in DB but Redis write failed for user {UserId}", userId);
+    }
+  }
+
+  private async Task<Guid?> ResolveUserIdFromRefreshTokenHashDualAsync(string tokenHash)
+  {
+    try
+    {
+      var fromDb = await _connection.QueryFirstOrDefaultAsync<Guid?>(
+          @"SELECT user_id FROM refresh_tokens
+            WHERE token_hash = @TokenHash AND expires_at > CURRENT_TIMESTAMP",
+          new { TokenHash = tokenHash });
+      if (fromDb != null)
+      {
+        return fromDb;
+      }
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Refresh token DB lookup failed; trying Redis");
+    }
+
+    try
+    {
+      var userIdString = await _redisService.GetAsync(RefreshTokenRedisKey(tokenHash));
+      if (!string.IsNullOrWhiteSpace(userIdString) && Guid.TryParse(userIdString, out var redisUserId))
+      {
+        return redisUserId;
+      }
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Refresh token Redis lookup failed");
+    }
+
+    return null;
+  }
+
+  private async Task<string?> GetActiveRefreshTokenHashForUserDualAsync(Guid userId)
+  {
+    try
+    {
+      var fromDb = await _connection.QueryFirstOrDefaultAsync<string>(
+          @"SELECT token_hash FROM refresh_tokens
+            WHERE user_id = @UserId AND expires_at > CURRENT_TIMESTAMP
+            ORDER BY created_at DESC
+            LIMIT 1",
+          new { UserId = userId });
+      if (!string.IsNullOrEmpty(fromDb))
+      {
+        return fromDb;
+      }
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Active refresh token DB lookup failed; trying Redis");
+    }
+
+    try
+    {
+      return await _redisService.GetAsync(RefreshUserRedisKey(userId));
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Active refresh token Redis lookup failed");
+      return null;
+    }
+  }
+
+  private async Task ClearRefreshTokensForUserDualAsync(Guid userId)
+  {
+    string? redisHash = null;
+    try
+    {
+      redisHash = await _redisService.GetAsync(RefreshUserRedisKey(userId));
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Could not read refresh token from Redis for user {UserId}", userId);
+    }
+
+    try
+    {
+      await _connection.ExecuteAsync(
+          "DELETE FROM refresh_tokens WHERE user_id = @UserId",
+          new { UserId = userId });
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Could not clear refresh tokens in DB for user {UserId}", userId);
+    }
+
+    try
+    {
+      if (!string.IsNullOrEmpty(redisHash))
+      {
+        await _redisService.DeleteAsync(RefreshTokenRedisKey(redisHash));
+      }
+
+      await _redisService.DeleteAsync(RefreshUserRedisKey(userId));
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Could not clear refresh tokens in Redis for user {UserId}", userId);
+    }
+  }
+
+  private async Task ClearRefreshTokenDualAsync(Guid userId, string tokenHash)
+  {
+    try
+    {
+      await _connection.ExecuteAsync(
+          "DELETE FROM refresh_tokens WHERE user_id = @UserId AND token_hash = @TokenHash",
+          new { UserId = userId, TokenHash = tokenHash });
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Could not delete refresh token from DB");
+    }
+
+    try
+    {
+      await _redisService.DeleteAsync(RefreshTokenRedisKey(tokenHash));
+      await _redisService.DeleteAsync(RefreshUserRedisKey(userId));
+    }
+    catch (Exception ex)
+    {
+      Log.Warning(ex, "Could not delete refresh token from Redis");
     }
   }
 

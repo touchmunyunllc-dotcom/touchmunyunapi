@@ -2,6 +2,7 @@ using System.Data;
 using Npgsql;
 using Dapper;
 using ECommerce.Models;
+using ECommerce.Utils;
 using Serilog;
 
 namespace ECommerce.Data;
@@ -10,6 +11,7 @@ public interface IDbContext
 {
     IDbConnection Connection { get; }
     Task InitializeDatabaseAsync();
+    Task RunMigrationsOnlyAsync();
 }
 
 public class DbContext : IDbContext
@@ -26,18 +28,40 @@ public class DbContext : IDbContext
 
     public async Task InitializeDatabaseAsync()
     {
+        var csBuilder = new NpgsqlConnectionStringBuilder(_connectionString);
+        var managedHost = DatabaseConnectionConfiguration.IsManagedPostgresHost(csBuilder.Host);
+
         using var connection = new NpgsqlConnection(_connectionString);
         await connection.OpenAsync();
 
-        // Create database if it doesn't exist
-        var builder = new NpgsqlConnectionStringBuilder(_connectionString);
-        var dbName = builder.Database;
-        builder.Database = "postgres"; // Connect to default database
+        // Neon/Render/etc.: database already exists; connecting to "postgres" via pooler often fails.
+        if (!managedHost)
+        {
+            await EnsureDatabaseExistsAsync(csBuilder);
+            if (connection.State == ConnectionState.Open)
+            {
+                await connection.CloseAsync();
+            }
 
-        using var masterConnection = new NpgsqlConnection(builder.ConnectionString);
+            await connection.OpenAsync();
+        }
+
+        await ExecuteSchemaAsync(connection);
+        await RunMigrationsAsync(connection);
+    }
+
+    private async Task EnsureDatabaseExistsAsync(NpgsqlConnectionStringBuilder csBuilder)
+    {
+        var dbName = csBuilder.Database;
+        if (string.IsNullOrWhiteSpace(dbName))
+        {
+            return;
+        }
+
+        csBuilder.Database = "postgres";
+        using var masterConnection = new NpgsqlConnection(csBuilder.ConnectionString);
         await masterConnection.OpenAsync();
 
-        // Check if database exists
         var dbExists = await masterConnection.QueryFirstOrDefaultAsync<int>(
             "SELECT 1 FROM pg_database WHERE datname = @dbName",
             new { dbName });
@@ -46,13 +70,12 @@ public class DbContext : IDbContext
         {
             await masterConnection.ExecuteAsync($"CREATE DATABASE \"{dbName}\"");
         }
+    }
 
-        await masterConnection.CloseAsync();
-
-        // Create tables by executing schema SQL
-        await ExecuteSchemaAsync(connection);
-        
-        // Run migrations to add new columns if they don't exist
+    public async Task RunMigrationsOnlyAsync()
+    {
+        using var connection = new NpgsqlConnection(_connectionString);
+        await connection.OpenAsync();
         await RunMigrationsAsync(connection);
     }
 
@@ -667,7 +690,33 @@ public class DbContext : IDbContext
                    OR UPPER(TRIM(country)) IN ('US', 'USA', 'U.S.', 'U.S.A.');
 
                 UPDATE addresses SET country = UPPER(TRIM(country))
-                WHERE LENGTH(TRIM(country)) = 2;");
+                WHERE LENGTH(TRIM(country)) = 2;
+
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    token VARCHAR(128) PRIMARY KEY,
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id
+                    ON password_reset_tokens(user_id);
+
+                CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires_at
+                    ON password_reset_tokens(expires_at);
+
+                CREATE TABLE IF NOT EXISTS refresh_tokens (
+                    token_hash VARCHAR(128) PRIMARY KEY,
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+                    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE UNIQUE INDEX IF NOT EXISTS idx_refresh_tokens_user_id
+                    ON refresh_tokens(user_id);
+
+                CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at
+                    ON refresh_tokens(expires_at);");
         }
         catch (Exception ex)
         {

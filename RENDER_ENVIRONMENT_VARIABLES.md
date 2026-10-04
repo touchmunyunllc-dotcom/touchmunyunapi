@@ -33,7 +33,9 @@ Examples:
 ## Minimum required in Production
 
 - Database:
-  - Either `DATABASE_URL` or `ConnectionStrings__DefaultConnection`
+  - Either `DATABASE_URL` (postgres:// from Neon/Render) or `ConnectionStrings__DefaultConnection` (Npgsql key=value)
+  - `Database__AutoInitialize=false` (Neon already has the DB; full init tries CREATE DATABASE and can crash)
+  - `Database__RunMigrationsOnStartup=true` (default in Production when AutoInitialize is false — applies column/slug patches only)
 - JWT:
   - `Jwt__Key` (at least 32 chars)
   - `Jwt__Issuer`
@@ -45,5 +47,6 @@ Examples:
 
 ## Notes
 
-- If Redis is not configured, startup throws in non-development environments.
+- If Redis is not configured, the API uses in-memory cache (warning in logs — OK for small traffic).
 - Prefer setting secrets in Render dashboard, not in appsettings files.
+- `DATABASE_URL` is converted automatically to Npgsql format with SSL for Neon.
