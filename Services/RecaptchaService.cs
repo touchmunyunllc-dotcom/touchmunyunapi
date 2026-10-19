@@ -12,6 +12,7 @@ public interface IRecaptchaService
 public class RecaptchaService : IRecaptchaService
 {
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IConfiguration _configuration;
     private readonly string _secretKey;
     private readonly double _minScore;
     private readonly IHostEnvironment _environment;
@@ -19,6 +20,7 @@ public class RecaptchaService : IRecaptchaService
     public RecaptchaService(IHttpClientFactory httpClientFactory, IConfiguration configuration, IHostEnvironment environment)
     {
         _httpClientFactory = httpClientFactory;
+        _configuration = configuration;
         _secretKey = configuration["Recaptcha:SecretKey"] ?? "";
         _minScore = configuration.GetValue<double>("Recaptcha:MinScore", 0.5);
         _environment = environment;
@@ -77,8 +79,11 @@ public class RecaptchaService : IRecaptchaService
 
             if (result == null || !result.Success)
             {
-                Log.Warning("[SECURITY] reCAPTCHA verification failed for action {Action}: {Errors}",
-                    action, string.Join(", ", result?.ErrorCodes ?? Array.Empty<string>()));
+                Log.Warning(
+                    "[SECURITY] reCAPTCHA verification failed for action {Action}: {Errors} (hostname: {Hostname})",
+                    action,
+                    string.Join(", ", result?.ErrorCodes ?? Array.Empty<string>()),
+                    result?.Hostname ?? "(unknown)");
                 return false;
             }
 
@@ -90,11 +95,12 @@ public class RecaptchaService : IRecaptchaService
                 return false;
             }
 
-            // Check score (0.0 = bot, 1.0 = human)
-            if (result.Score < _minScore)
+            var minScore = GetMinScoreForAction(action);
+            if (result.Score < minScore)
             {
-                Log.Warning("[SECURITY] reCAPTCHA score too low for action {Action}: {Score} (min: {MinScore})",
-                    action, result.Score, _minScore);
+                Log.Warning(
+                    "[SECURITY] reCAPTCHA score too low for action {Action}: {Score} (min: {MinScore}, hostname: {Hostname})",
+                    action, result.Score, minScore, result.Hostname ?? "(unknown)");
                 return false;
             }
 
@@ -106,6 +112,25 @@ public class RecaptchaService : IRecaptchaService
             // Fail closed in non-development environments
             return _environment.IsDevelopment();
         }
+    }
+
+    /// <summary>
+    /// Guest checkout uses a slightly lower bar — mobile shoppers often score 0.3–0.5 legitimately.
+    /// </summary>
+    private double GetMinScoreForAction(string action)
+    {
+        if (string.Equals(action, "guest_checkout", StringComparison.OrdinalIgnoreCase))
+        {
+            var guestMin = _configuration.GetValue<double?>("Recaptcha:GuestCheckoutMinScore");
+            if (guestMin.HasValue)
+            {
+                return guestMin.Value;
+            }
+
+            return Math.Min(_minScore, 0.35);
+        }
+
+        return _minScore;
     }
 }
 

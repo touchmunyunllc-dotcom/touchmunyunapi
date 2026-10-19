@@ -54,4 +54,5 @@ public record GuestOrderResponse(
     string? Status = null,
     string? TrackingNumber = null,
     string? TrackingUrl = null,
-    List<Models.OrderItem>? OrderItems = null);
+    List<Models.OrderItem>? OrderItems = null,
+    string? CaptchaWarning = null);

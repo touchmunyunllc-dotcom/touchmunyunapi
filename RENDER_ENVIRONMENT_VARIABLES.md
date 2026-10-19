@@ -42,6 +42,7 @@ Examples:
   - `Jwt__Audience`
 - Recaptcha:
   - `Recaptcha__SecretKey`
+  - `Recaptcha__GuestCheckoutOptional=true` (default: allow guest checkout if CAPTCHA fails; logs warning)
 - Frontend CORS:
   - `FrontendUrl`
 

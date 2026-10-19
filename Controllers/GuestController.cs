@@ -16,19 +16,25 @@ public class GuestController : ControllerBase
     private readonly IValidator<GuestCheckoutPreviewRequest> _previewValidator;
     private readonly IRecaptchaService _recaptchaService;
     private readonly ICountryService _countryService;
+    private readonly IConfiguration _configuration;
+    private readonly ILogger<GuestController> _logger;
 
     public GuestController(
         IGuestService guestService,
         IValidator<GuestCheckoutRequest> guestCheckoutValidator,
         IValidator<GuestCheckoutPreviewRequest> previewValidator,
         IRecaptchaService recaptchaService,
-        ICountryService countryService)
+        ICountryService countryService,
+        IConfiguration configuration,
+        ILogger<GuestController> logger)
     {
         _guestService = guestService;
         _guestCheckoutValidator = guestCheckoutValidator;
         _previewValidator = previewValidator;
         _recaptchaService = recaptchaService;
         _countryService = countryService;
+        _configuration = configuration;
+        _logger = logger;
     }
 
     /// <summary>Server-computed totals for guest cart (use this total in POST checkout).</summary>
@@ -83,13 +89,26 @@ public class GuestController : ControllerBase
 
         var clientIp = ClientIpHelper.GetClientIpAddress(HttpContext);
         var captchaValid = await _recaptchaService.VerifyAsync(request.CaptchaToken, "guest_checkout", clientIp);
+        string? captchaWarning = null;
+        var guestCaptchaOptional = _configuration.GetValue("Recaptcha:GuestCheckoutOptional", true);
         if (!captchaValid)
         {
-            return BadRequest(new
+            if (!guestCaptchaOptional)
             {
-                message = "CAPTCHA verification failed. Please try again.",
-                hint = "Ensure the storefront has NEXT_PUBLIC_RECAPTCHA_SITE_KEY set and localhost/your domain is allowed in Google reCAPTCHA admin.",
-            });
+                return BadRequest(new
+                {
+                    message = "CAPTCHA verification failed. Please try again.",
+                    hint = "Ensure the storefront has NEXT_PUBLIC_RECAPTCHA_SITE_KEY set and your domain is allowed in Google reCAPTCHA admin.",
+                });
+            }
+
+            captchaWarning =
+                "We could not verify the security check, but your checkout can continue. If payment fails, try another browser or create an account.";
+            _logger.LogWarning(
+                "Guest checkout proceeding without valid reCAPTCHA. Email={Email}, Ip={Ip}, HasToken={HasToken}",
+                request.Email,
+                clientIp,
+                !string.IsNullOrWhiteSpace(request.CaptchaToken));
         }
 
         try
@@ -141,7 +160,8 @@ public class GuestController : ControllerBase
                 result.OrderCode,
                 result.ClientSecret,
                 result.PaymentIntentId,
-                result.OrderId));
+                result.OrderId,
+                CaptchaWarning: captchaWarning));
         }
         catch (Exception ex)
         {
