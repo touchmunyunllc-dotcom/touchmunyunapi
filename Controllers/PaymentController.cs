@@ -408,10 +408,13 @@ public class PaymentsController : ControllerBase
 
         try
         {
+            // Live webhook endpoints use a newer Stripe API version than Stripe.net 43.
+            // Rejecting the version mismatch drops payment_intent.succeeded before an order is created.
             var stripeEvent = EventUtility.ConstructEvent(
                 json,
                 Request.Headers["Stripe-Signature"],
-                webhookSecret);
+                webhookSecret,
+                throwOnApiVersionMismatch: false);
 
             if (_connection.State != ConnectionState.Open)
             {
